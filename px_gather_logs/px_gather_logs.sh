@@ -155,8 +155,6 @@ check_if_px_csiv3() {
     return 1
   fi
 
-  echo "Checking STC: $STC"
-
   # Annotation check
   local MISC_ARGS
   MISC_ARGS=$($cli get stc "$STC" -n "$namespace" \
@@ -1237,8 +1235,14 @@ extract_common_commands_op
 if $cli api-versions | grep -q 'openshift'; then
 extract_ocp_specific_commands_op
 fi
-print_progress 11
-extract_storkctl_op
+
+
+if [[ "$PXCSIV3" == "true" ]]; then
+  print_progress 11 skip
+else
+  print_progress 11
+  extract_storkctl_op
+fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
 log_info "Extraction is completed"
