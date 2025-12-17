@@ -212,7 +212,11 @@ fi
 
 
 if [[ "$option" == "PX" ]]; then
-  main_dir="${file_prefix}PXE_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
+  if [[ "$PXCSIV3" == "true" ]]; then
+     main_dir="${file_prefix}PXCSI_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
+  else
+     main_dir="${file_prefix}PXE_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
+  fi
 else
   main_dir="${file_prefix}PXB_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
 fi
