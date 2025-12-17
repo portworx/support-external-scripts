@@ -986,8 +986,8 @@ fi
 
 
 # Execute pxctl commands 
-print_progress 2
 
+extract_pxctl_op() {
 for i in "${!pxctl_commands[@]}"; do
   cmd="${pxctl_commands[$i]}"
   output_file="$output_dir/${pxctl_output_files[$i]}"
@@ -1004,7 +1004,14 @@ for i in "${!pxctl_commands[@]}"; do
   #echo ""
   #echo "------------------------------------" 
 done
+}
 
+if [[ "$PXCSIV3" == "true" ]]; then
+  print_progress 2 skip
+else
+  print_progress 2
+  extract_pxctl_op
+fi
 # Generating Logs
 print_progress 3
 
