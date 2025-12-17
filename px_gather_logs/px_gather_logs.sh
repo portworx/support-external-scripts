@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.11.1"
+SCRIPT_VERSION="25.12.0"
 
 
 # Function to display usage
@@ -46,7 +46,12 @@ log_info() {
 print_progress() {
     local current_stage=$1
     local total_stages="11"
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting $current_stage/$total_stages..." | tee -a "$summary_file"
+    local action=$2
+    if [[ "$action" == "skip" ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting $current_stage/$total_stages..." | tee -a "$summary_file"
+    fi
 }
 
 # Parse command-line arguments
