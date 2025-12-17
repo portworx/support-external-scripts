@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.11.1"
+SCRIPT_VERSION="25.12.0"
 
 
 # Function to display usage
@@ -46,7 +46,12 @@ log_info() {
 print_progress() {
     local current_stage=$1
     local total_stages="11"
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting $current_stage/$total_stages..." | tee -a "$summary_file"
+    local action=$2
+    if [[ "$action" == "skip" ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting $current_stage/$total_stages..." | tee -a "$summary_file"
+    fi
 }
 
 # Parse command-line arguments
@@ -129,6 +134,53 @@ echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace: $namespace"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): CLI tool: $cli"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): option: $option"
 
+# Added function to check if its PX CSI V3 (version higher than 25.8.0)
+
+check_if_px_csiv3() {
+  [[ "$option" == "PX" ]] || return 0
+
+  local REQUIRED_ARG="oem px-csi"
+  local REQUIRED_IMAGE_STRING="px-pure-csi-driver"
+
+  # Expect exactly one STC
+  local STC
+  STC=$($cli get stc -n "$namespace" \
+    -o jsonpath='{.items[*].metadata.name}')
+
+  local COUNT
+  COUNT=$(wc -w <<< "$STC")
+
+  if [[ "$COUNT" -ne 1 ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Expected exactly one STC in namespace '$namespace', found $COUNT"
+    return 1
+  fi
+
+  # Annotation check
+  local MISC_ARGS
+  MISC_ARGS=$($cli get stc "$STC" -n "$namespace" \
+    -o jsonpath='{.metadata.annotations.portworx\.io/misc-args}' 2>/dev/null)
+
+  if ! grep -q "$REQUIRED_ARG" <<< "$MISC_ARGS"; then
+    return 1
+  fi
+
+  # Image string check
+  local IMAGE
+  IMAGE=$($cli get stc "$STC" -n "$namespace" \
+    -o jsonpath='{.spec.image}' 2>/dev/null)
+
+  if ! grep -q "$REQUIRED_IMAGE_STRING" <<< "$IMAGE"; then
+    return 1
+  fi
+
+  # All checks passed → set flag
+  PXCSIV3=true
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): PX CSI v3 detected"
+  return 0
+}
+
+check_if_px_csiv3
+
 # Setting up output directories
 
 setup_output_dirs() {
@@ -158,7 +210,11 @@ fi
 
 
 if [[ "$option" == "PX" ]]; then
-  main_dir="${file_prefix}PXE_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
+  if [[ "$PXCSIV3" == "true" ]]; then
+     main_dir="${file_prefix}PXCSI_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
+  else
+     main_dir="${file_prefix}PXE_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
+  fi
 else
   main_dir="${file_prefix}PXB_${cluster_part}${namespace}_k8s_diags_$(date +%Y%m%d_%H%M%S)"
 fi
@@ -490,6 +546,9 @@ if [[ "$option" == "PX" ]]; then
     "job-name=pre-pure-csi-migrator"
     "app.kubernetes.io/component=controller-plugin"
     "app.kubernetes.io/component=node-plugin"
+    "app.kubernetes.io/component=telemetry-plugin"
+    "app.kubernetes.io/component=telemetry-registration"
+    
   )
 
 
@@ -930,8 +989,8 @@ fi
 
 
 # Execute pxctl commands 
-print_progress 2
 
+extract_pxctl_op() {
 for i in "${!pxctl_commands[@]}"; do
   cmd="${pxctl_commands[$i]}"
   output_file="$output_dir/${pxctl_output_files[$i]}"
@@ -948,7 +1007,14 @@ for i in "${!pxctl_commands[@]}"; do
   #echo ""
   #echo "------------------------------------" 
 done
+}
 
+if [[ "$PXCSIV3" == "true" ]]; then
+  print_progress 2 skip
+else
+  print_progress 2
+  extract_pxctl_op
+fi
 # Generating Logs
 print_progress 3
 
@@ -1179,8 +1245,14 @@ extract_common_commands_op
 if $cli api-versions | grep -q 'openshift'; then
 extract_ocp_specific_commands_op
 fi
-print_progress 11
-extract_storkctl_op
+
+
+if [[ "$PXCSIV3" == "true" ]]; then
+  print_progress 11 skip
+else
+  print_progress 11
+  extract_storkctl_op
+fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
 log_info "Extraction is completed"
