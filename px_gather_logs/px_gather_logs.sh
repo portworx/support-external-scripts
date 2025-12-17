@@ -175,7 +175,7 @@ check_if_px_csiv3() {
 
   # All checks passed → set flag
   PXCSIV3=true
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): PX CSI v3 detected: PXCSIV3=$PXCSIV3"
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): PX CSI v3 detected"
   return 0
 }
 
