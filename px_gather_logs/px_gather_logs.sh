@@ -134,6 +134,55 @@ echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace: $namespace"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): CLI tool: $cli"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): option: $option"
 
+# Added function to check if its PX CSI V3 (version higher than 25.8.0)
+
+check_if_px_csiv3() {
+  [[ "$option" == "PX" ]] || return 0
+
+  local REQUIRED_ARG="oem px-csi"
+  local REQUIRED_IMAGE_STRING="px-pure-csi-driver"
+
+  # Expect exactly one STC
+  local STC
+  STC=$($cli get stc -n "$namespace" \
+    -o jsonpath='{.items[*].metadata.name}')
+
+  local COUNT
+  COUNT=$(wc -w <<< "$STC")
+
+  if [[ "$COUNT" -ne 1 ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Expected exactly one STC in namespace '$namespace', found $COUNT"
+    return 1
+  fi
+
+  echo "Checking STC: $STC"
+
+  # Annotation check
+  local MISC_ARGS
+  MISC_ARGS=$($cli get stc "$STC" -n "$namespace" \
+    -o jsonpath='{.metadata.annotations.portworx\.io/misc-args}' 2>/dev/null)
+
+  if ! grep -q "$REQUIRED_ARG" <<< "$MISC_ARGS"; then
+    return 1
+  fi
+
+  # Image string check
+  local IMAGE
+  IMAGE=$($cli get stc "$STC" -n "$namespace" \
+    -o jsonpath='{.spec.image}' 2>/dev/null)
+
+  if ! grep -q "$REQUIRED_IMAGE_STRING" <<< "$IMAGE"; then
+    return 1
+  fi
+
+  # All checks passed → set flag
+  PXCSIV3=true
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): PX CSI v3 detected: PXCSIV3=$PXCSIV3"
+  return 0
+}
+
+check_if_px_csiv3
+
 # Setting up output directories
 
 setup_output_dirs() {
