@@ -546,6 +546,9 @@ if [[ "$option" == "PX" ]]; then
     "job-name=pre-pure-csi-migrator"
     "app.kubernetes.io/component=controller-plugin"
     "app.kubernetes.io/component=node-plugin"
+    "app.kubernetes.io/component=telemetry-plugin"
+    "app.kubernetes.io/component=telemetry-registration"
+    
   )
 
 
