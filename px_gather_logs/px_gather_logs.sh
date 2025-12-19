@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.12.1"
+SCRIPT_VERSION="25.12.2"
 
 
 # Function to display usage
@@ -1145,23 +1145,10 @@ if $cli get crd | grep -q "virtualmachines.kubevirt.io"; then
   done
 fi
 
-#Execute Migration commands
-
-print_progress 7
-
-for i in "${!migration_commands[@]}"; do
-  cmd="${migration_commands[$i]}"
-  output_file="$output_dir/${migration_output[$i]}"
-  #echo "Executing: $cli $cmd"
-  $cli $cmd > "$output_file" 2>&1
-  #echo "Output saved to: $output_file"
-  #echo ""
-  #echo "------------------------------------" 
-done
 
 #Execute log extractions from other namespaces
 
-print_progress 8
+print_progress 7
 
 for i in "${!logs_oth_ns[@]}"; do
   label="${logs_oth_ns[$i]}"
@@ -1187,6 +1174,21 @@ for i in "${!logs_oth_ns[@]}"; do
   
   done
 done
+
+#Execute Migration commands
+
+#print_progress 8
+extract_migration_op() {
+for i in "${!migration_commands[@]}"; do
+  cmd="${migration_commands[$i]}"
+  output_file="$output_dir/${migration_output[$i]}"
+  #echo "Executing: $cli $cmd"
+  $cli $cmd > "$output_file" 2>&1
+  #echo "Output saved to: $output_file"
+  #echo ""
+  #echo "------------------------------------" 
+done
+}
 
 #Execute masked data extractions
 
@@ -1242,9 +1244,11 @@ extract_storkctl_op() {
     done
 }
 
-print_progress 9
+
+
+print_progress 8
 extract_masked_data
-print_progress 10
+print_progress 9
 extract_common_commands_op
 if $cli api-versions | grep -q 'openshift'; then
 extract_ocp_specific_commands_op
@@ -1252,8 +1256,11 @@ fi
 
 
 if [[ "$PXCSIV3" == "true" ]]; then
+  print_progress 10 skip
   print_progress 11 skip
 else
+  print_progress 10
+  extract_migration_op
   print_progress 11
   extract_storkctl_op
 fi
