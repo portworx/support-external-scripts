@@ -160,9 +160,8 @@ else
     echo "$(date '+%Y-%m-%d %H:%M:%S'): Please provide the namespace explicitly."
     exit 1
   fi
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Derived namespace: $namespace"
 fi
-
-echo "$(date '+%Y-%m-%d %H:%M:%S'): Derived namespace: $namespace"
 
 }
 
