@@ -127,7 +127,7 @@ if [[ -n "$namespace" ]]; then
     exit 1
   fi
 else
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace is not passed, driving it automatically"
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace is not passed, deriving it automatically"
   case "$option" in
     PX)
       namespace=$(
