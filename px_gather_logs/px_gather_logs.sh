@@ -127,6 +127,7 @@ if [[ -n "$namespace" ]]; then
     exit 1
   fi
 else
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace is not passed, driving it automatically"
   case "$option" in
     PX)
       namespace=$(
@@ -155,9 +156,9 @@ else
 
   # Ensure exactly one namespace is found
   if [[ $(echo "$namespace" | wc -l) -gt 1 ]]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Multiple namespaces found:"
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Multiple namespaces found while driving it for $option:"
     echo "$namespace"
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): Please provide the namespace explicitly."
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Please provide the namespace explicitly as parameter to the script as -n <namespace>"
     exit 1
   fi
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Derived namespace: $namespace"
