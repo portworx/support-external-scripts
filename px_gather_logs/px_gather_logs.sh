@@ -69,14 +69,14 @@ while getopts "n:c:o:u:p:d:f:" opt; do
 done
 
 # Prompt for namespace if not provided
-if [[ -z "$namespace" ]]; then
-  read -p "Enter the namespace: " namespace
-  namespace=$(echo "$namespace" | tr '[:upper:]' '[:lower:]')
-  if [[ -z "$namespace" ]]; then
-    echo "Error: Namespace cannot be empty."
-    exit 1
-  fi
-fi
+#if [[ -z "$namespace" ]]; then
+#  read -p "Enter the namespace: " namespace
+#  namespace=$(echo "$namespace" | tr '[:upper:]' '[:lower:]')
+#  if [[ -z "$namespace" ]]; then
+#    echo "Error: Namespace cannot be empty."
+#    exit 1
+#  fi
+#fi
 
 
 
@@ -115,6 +115,58 @@ if [[ -z "$option" ]]; then
     exit 1
   fi
 fi
+
+
+# Normalize input namespace if provided
+validate_and_derive_namespace() {
+if [[ -n "$namespace" ]]; then
+  namespace=$(echo "$namespace" | tr '[:upper:]' '[:lower:]')
+
+  if ! $cli get namespace "$namespace" >/dev/null 2>&1; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Namespace '$namespace' does not exist in the cluster."
+    exit 1
+  fi
+else
+  case "$option" in
+    PX)
+      namespace=$(
+        $cli get stc -A --no-headers 2>/dev/null \
+        | awk '{print $1}' \
+        | sort -u
+      )
+      ;;
+    PXB)
+      namespace=$(
+        $cli get deployment px-backup -A --no-headers 2>/dev/null \
+        | awk '{print $1}' \
+        | sort -u
+      )
+      ;;
+    *)
+      echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid option '$option'. Expected PX or PXB."
+      exit 1
+      ;;
+  esac
+
+  if [[ -z "$namespace" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Could not determine namespace automatically.Please pass the namespace as parameter to the script as -n <namespace>"
+    exit 1
+  fi
+
+  # Ensure exactly one namespace is found
+  if [[ $(echo "$namespace" | wc -l) -gt 1 ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Multiple namespaces found:"
+    echo "$namespace"
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Please provide the namespace explicitly."
+    exit 1
+  fi
+fi
+
+echo "$(date '+%Y-%m-%d %H:%M:%S'): Derived namespace: $namespace"
+
+}
+
+validate_and_derive_namespace
 
 # Automatically get Kubernetes cluster name
 
