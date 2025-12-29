@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.12.2"
+SCRIPT_VERSION="25.12.3"
 
 
 # Function to display usage
@@ -137,8 +137,8 @@ else
       ;;
     PXB)
       namespace=$(
-        $cli get deployment px-backup -A --no-headers 2>/dev/null \
-        | awk '{print $1}' \
+        $cli get deployment -A --no-headers 2>/dev/null \
+        | awk '$2 == "px-backup" {print $1}' \
         | sort -u
       )
       ;;
