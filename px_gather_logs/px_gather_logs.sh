@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.12.4"
+SCRIPT_VERSION="25.12.5"
 
 
 # Function to display usage
@@ -60,7 +60,7 @@ print_progress() {
 }
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:" opt; do
+while getopts "n:c:o:u:p:d:f:l:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -69,6 +69,7 @@ while getopts "n:c:o:u:p:d:f:" opt; do
     p) ftpspass="$OPTARG" ;;
     d) user_output_dir="$OPTARG" ;;
     f) file_prefix="${OPTARG:0:15}_" ;;
+    l) max_pods_logs="$OPTARG" ;;
     *) usage ;;
   esac
 done
@@ -1074,6 +1075,7 @@ log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
 log_info "Security Enabled: ${sec_enabled:-false}"
+log_info "Max px pod logs gather limited to: ${max_pods_logs:-NotSet}"
 log_info "Extraction Started"
 
 
@@ -1138,8 +1140,14 @@ fi
 # Generating Logs
 print_progress 3
 
-# Define the labels you want to apply the 5-log limit to
-limited_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portworx" "app.kubernetes.io/component=node-plugin" "app.kubernetes.io/component=telemetry-plugin")
+#settig default value
+pxc_max_pods_logs="${max_pods_logs:-200}"
+pxe_max_pods_logs="${max_pods_logs:-5}"
+
+# Define the labels you want to apply the log limit to
+px_op_ds_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portworx" "app.kubernetes.io/component=node-plugin" "app.kubernetes.io/component=telemetry-plugin")
+pxc_op_ds_limit_labels=("app.kubernetes.io/component=node-plugin")
+pxe_op_ds_limit_labels=("name=portworx")
 
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
@@ -1152,12 +1160,18 @@ for i in "${!log_labels[@]}"; do
     PODS=($($cli get pods -n "$namespace" -o jsonpath="{.items[*].metadata.name}"))
   fi
 
-  # Check if current label is in the limited set
-  if printf '%s\n' "${limited_labels[@]}" | grep -Fxq "$label"; then
+  # Check if current label is in the px_op_ds_labels set
+  if printf '%s\n' "${px_op_ds_labels[@]}" | grep -Fxq "$label"; then
     label_value=$(echo "$label" | awk -F '=' '{print $2}')
-    max_logs=5
-    not_ready_pods=()
-    ready_pods=()
+    #check if it sin in PXCSI limit set and assign pxc_max_pods_logs or default 200
+    if [[ " ${label} " =~ " ${pxc_op_ds_limit_labels[@]} " ]]; then
+        max_logs=$pxc_max_pods_logs
+    #check if it sin in PX-E limit set and assign pxe_max_pods_logs or default 5
+    elif [[ " ${label} " =~ " ${pxe_op_ds_limit_labels[@]} " ]]; then
+        max_logs=$pxe_max_pods_logs
+    else
+        max_logs=5
+    fi
 
     # Separate pods by container readiness
     for POD in "${PODS[@]}"; do
