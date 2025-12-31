@@ -1075,7 +1075,7 @@ fi
 print_progress 3
 
 # Define the labels you want to apply the 5-log limit to
-limited_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portworx")
+limited_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portworx" "app.kubernetes.io/component=node-plugin" "app.kubernetes.io/component=telemetry-plugin")
 
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
@@ -1090,6 +1090,7 @@ for i in "${!log_labels[@]}"; do
 
   # Check if current label is in the limited set
   if printf '%s\n' "${limited_labels[@]}" | grep -Fxq "$label"; then
+    label_value=$(echo "$label" | awk -F '=' '{print $2}')
     max_logs=5
     not_ready_pods=()
     ready_pods=()
@@ -1107,7 +1108,9 @@ for i in "${!log_labels[@]}"; do
     # Prioritize logs from not-ready pods
     for POD in "${not_ready_pods[@]}"; do
       if [[ $log_count -ge $max_logs ]]; then break; fi
-      LOG_FILE="${output_dir}/logs/${POD}.log"
+      NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
+      mkdir -p ${output_dir}/logs/${label_value}/
+      LOG_FILE="${output_dir}/logs/${label_value}/${NODE_NAME}.log"
       $cli logs -n "$namespace" "$POD" --tail -1 --all-containers > "$LOG_FILE"
       ((log_count++))
     done
@@ -1115,7 +1118,9 @@ for i in "${!log_labels[@]}"; do
     # Fill remaining with ready pods
     for POD in "${ready_pods[@]}"; do
       if [[ $log_count -ge $max_logs ]]; then break; fi
-      LOG_FILE="${output_dir}/logs/${POD}.log"
+      NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
+      mkdir -p ${output_dir}/logs/${label_value}/
+      LOG_FILE="${output_dir}/logs/${label_value}/${NODE_NAME}.log"
       $cli logs -n "$namespace" "$POD" --tail -1 --all-containers > "$LOG_FILE"
       ((log_count++))
     done
