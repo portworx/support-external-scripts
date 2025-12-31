@@ -154,7 +154,7 @@ print_info "CLI tool is not passed, deriving it automatically"
         cli="oc"
     else
         # Both work → detect OpenShift
-        if kubectl api-resources 2>/dev/null | grep -qi '^routes\.route\.openshift\.io'; then
+        if kubectl api-resources 2>/dev/null | grep -qi 'openshift'; then
             cli="oc"
         else
             cli="kubectl"
