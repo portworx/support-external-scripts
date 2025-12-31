@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.12.3"
+SCRIPT_VERSION="25.12.4"
 
 
 # Function to display usage
@@ -157,6 +157,7 @@ fi
 
 }
 
+validate_and_derive_k8s_cli
 
 
 # Prompt for option if not provided
