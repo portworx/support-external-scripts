@@ -4,11 +4,11 @@
 # Description: Collects logs and other information related to portworx/PX Backup.
 # Usage:
 # - Mandatory arguments:
-#   -c <cli>       : CLI tool to use (oc/kubectl)
 #   -o <option>    : Operation option (PX for Portworx, PXB for PX Backup)
 #
 # - Optional arguments:
 #   -n <namespace> : K8s namespace. If not provided, the script automatically determines the namespace. Specify this option only if automatic detection encounters inconsistencies or if you want to explicitly set the namespace.
+#   -c <cli>       : CLI tool to use (oc/kubectl).If not provided, the script automatically determines the CLI. 
 #   -u <pure ftps username>  : Pure Storage FTPS username for uploading logs
 #   -p <pure ftps password>  : Pure Storage FTPS password for uploading logs
 #   -d <output_dir>: Custom output directory for storing diags
