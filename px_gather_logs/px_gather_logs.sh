@@ -81,10 +81,16 @@ done
 
 
 # Prompt for k8s CLI  if not provided
-if [[ -z "$cli" ]]; then
-  read -p "Enter the k8s CLI (oc/kubectl): " cli
-fi
+#if [[ -z "$cli" ]]; then
+#  read -p "Enter the k8s CLI (oc/kubectl): " cli
+#fi
 
+validate_and_derive_k8s_cli() {
+
+
+# Validate user-provided CLI
+
+if [[ -n "$cli" ]]; then
 # Check if the CLI value is kubectl or OC
 
 if [[ "$cli" != "oc" && "$cli" != "kubectl" ]]; then
@@ -98,11 +104,58 @@ if ! command -v "$cli" &> /dev/null; then
   exit 1
 fi
 
+
 # Check if the CLI command works
 if ! $cli cluster-info &> /dev/null; then
   echo "Error: '$cli' is available but not functioning correctly. Ensure you have the necessary permissions to execute '$cli' commands on the cluster."
   exit 1
 fi
+
+fi
+
+# Automatic Cli derrivation
+
+if [[ -z "$cli" ]]; then
+    kubectl_ok=false
+    oc_ok=false
+
+    # Check kubectl
+    if command -v kubectl >/dev/null 2>&1 && \
+       kubectl version --request-timeout=5s >/dev/null 2>&1; then
+        kubectl_ok=true
+    fi
+
+    # Check oc
+    if command -v oc >/dev/null 2>&1 && \
+       oc version --request-timeout=5s >/dev/null 2>&1; then
+        oc_ok=true
+    fi
+
+# No usable CLI
+    if ! $kubectl_ok && ! $oc_ok; then
+        echo "ERROR: Neither kubectl nor oc can access a cluster" >&2
+        exit 1
+    fi
+
+    # If only one works, use it
+    if $kubectl_ok && ! $oc_ok; then
+        cli="kubectl"
+    elif ! $kubectl_ok && $oc_ok; then
+        cli="oc"
+    else
+        # Both work → detect OpenShift
+        if kubectl api-resources 2>/dev/null | grep -qi '^routes\.route\.openshift\.io'; then
+            cli="oc"
+        else
+            cli="kubectl"
+        fi
+    fi
+
+echo "Using CLI: $cli"
+fi
+
+
+}
 
 
 
