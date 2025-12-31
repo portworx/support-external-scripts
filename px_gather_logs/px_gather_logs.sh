@@ -4,11 +4,11 @@
 # Description: Collects logs and other information related to portworx/PX Backup.
 # Usage:
 # - Mandatory arguments:
-#   -c <cli>       : CLI tool to use (oc/kubectl)
 #   -o <option>    : Operation option (PX for Portworx, PXB for PX Backup)
 #
 # - Optional arguments:
 #   -n <namespace> : K8s namespace. If not provided, the script automatically determines the namespace. Specify this option only if automatic detection encounters inconsistencies or if you want to explicitly set the namespace.
+#   -c <cli>       : CLI tool to use (oc/kubectl).If not provided, the script automatically determines the CLI. 
 #   -u <pure ftps username>  : Pure Storage FTPS username for uploading logs
 #   -p <pure ftps password>  : Pure Storage FTPS password for uploading logs
 #   -d <output_dir>: Custom output directory for storing diags
@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.12.3"
+SCRIPT_VERSION="25.12.4"
 
 
 # Function to display usage
@@ -41,6 +41,11 @@ log_info() {
     echo "$(date '+%Y-%m-%d %H:%M:%S'): $*" >> $summary_file
 }
 
+# Function to print console log
+
+print_info() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): $*"
+}
 # Function to print progress
 
 print_progress() {
@@ -81,29 +86,88 @@ done
 
 
 # Prompt for k8s CLI  if not provided
-if [[ -z "$cli" ]]; then
-  read -p "Enter the k8s CLI (oc/kubectl): " cli
-fi
+#if [[ -z "$cli" ]]; then
+#  read -p "Enter the k8s CLI (oc/kubectl): " cli
+#fi
 
+validate_and_derive_k8s_cli() {
+
+
+# Validate user-provided CLI
+
+if [[ -n "$cli" ]]; then
 # Check if the CLI value is kubectl or OC
+print_info "cli is passed as $cli, validating"
+
 
 if [[ "$cli" != "oc" && "$cli" != "kubectl" ]]; then
-  echo "Error: Invalid k8s CLI. Choose either 'oc' or 'kubectl'."
+  print_info "Error: Invalid k8s CLI. Choose either 'oc' or 'kubectl'."
   exit 1
 fi
 
 # Check if the CLI is available
 if ! command -v "$cli" &> /dev/null; then
-  echo "Error: '$cli' command not found. Please ensure that '$cli' is available in this server"
+  print_info "Error: '$cli' command not found. Please ensure that '$cli' is available in this server"
   exit 1
 fi
+
 
 # Check if the CLI command works
 if ! $cli cluster-info &> /dev/null; then
-  echo "Error: '$cli' is available but not functioning correctly. Ensure you have the necessary permissions to execute '$cli' commands on the cluster."
+  print_info "Error: '$cli' is available but not functioning correctly. Ensure you have the necessary permissions to execute '$cli' commands on the cluster."
   exit 1
 fi
 
+fi
+
+# Automatic Cli derrivation
+
+if [[ -z "$cli" ]]; then
+
+print_info "CLI tool is not passed, deriving it automatically"
+
+    kubectl_ok=false
+    oc_ok=false
+
+    # Check kubectl
+    if command -v kubectl >/dev/null 2>&1 && \
+       kubectl version --request-timeout=5s >/dev/null 2>&1; then
+        kubectl_ok=true
+    fi
+
+    # Check oc
+    if command -v oc >/dev/null 2>&1 && \
+       oc version --request-timeout=5s >/dev/null 2>&1; then
+        oc_ok=true
+    fi
+
+# No usable CLI
+    if ! $kubectl_ok && ! $oc_ok; then
+        print_info "ERROR: Neither kubectl nor oc can access a cluster" >&2
+        exit 1
+    fi
+
+    # If only one works, use it
+    if $kubectl_ok && ! $oc_ok; then
+        cli="kubectl"
+    elif ! $kubectl_ok && $oc_ok; then
+        cli="oc"
+    else
+        # Both work → detect OpenShift
+        if kubectl api-resources 2>/dev/null | grep -qi 'openshift'; then
+            cli="oc"
+        else
+            cli="kubectl"
+        fi
+    fi
+
+print_info "Using CLI: $cli"
+fi
+
+
+}
+
+validate_and_derive_k8s_cli
 
 
 # Prompt for option if not provided
