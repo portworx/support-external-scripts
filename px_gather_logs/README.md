@@ -6,13 +6,13 @@ Collects logs and other information related to Portworx/PX Backup for issue anal
 ### Mandatory Parameters
 | **Parameter** | **Description**                                                                 | **Example**                          |
 |---------------|---------------------------------------------------------------------------------|--------------------------------------|
-| `-n`          | Namespace                                                                       | `-n portworx`                        |
 | `-c`          | CLI tool to use (e.g., `kubectl` or `oc`)                                       | `-c kubectl`                         |
 | `-o`          | Option (`PX` for Portworx, `PXB` for PX Backup)                                 | `-o PX`                              |
 
 ### Optional Parameters
 | **Parameter** | **Description**                                                                 | **Example**                          |
 |---------------|---------------------------------------------------------------------------------|--------------------------------------|
+| `-n`          | Portworx/PX backup installed Namespace                                          | `-n portworx`                        |
 | `-u`          | Pure Storage FTPS username for uploading logs                                   | `-u myusername`                      |
 | `-p`          | Pure Storage  FTPS password for uploading logs                                  | `-p mypassword`                      |
 | `-d`          | Custom output directory for storing logs                                        | `-d /path/to/output`                 |
@@ -24,27 +24,26 @@ Collects logs and other information related to Portworx/PX Backup for issue anal
 ### Passing Inputs as Parameters
 #### For Portworx:
 ```bash
-px_gather_logs.sh -n <Portworx namespace> -c <k8s cli> -o PX
+px_gather_logs.sh -c <k8s cli> -o PX
 ```
 Example:
 ```bash
-px_gather_logs.sh -n portworx -c kubectl -o PX
+px_gather_logs.sh -c kubectl -o PX
 ```
 
 #### For PX Backup:
 ```bash
-px_gather_logs.sh -n <Portworx Backup namespace> -c <k8s cli> -o PXB
+px_gather_logs.sh -c <k8s cli> -o PXB
 ```
 Example:
 ```bash
-px_gather_logs.sh -n px-backup -c oc -o PXB
+px_gather_logs.sh -c oc -o PXB
 ```
 
 ### Without Parameters
 If no parameters are passed, the script will prompt for input.
 ````bash
 ./px_gather_logs.sh 
-Enter the namespace: portworx
 Enter the k8s CLI  (oc/kubectl): kubectl
 Choose an option (PX/PXB) (Enter PX for Portworx Enterprise/CSI, Enter PXB for PX Backup): PX
 ````
@@ -52,16 +51,16 @@ Choose an option (PX/PXB) (Enter PX for Portworx Enterprise/CSI, Enter PXB for P
 ### Execute Using Curl
 You can download and execute the script directly from GitHub using the following command:
 ```bash
-curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -n <namespace> -c <kubectl/oc> -o <PX/PXB>
+curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -c <kubectl/oc> -o <PX/PXB>
 ```
 Example:
 ```bash
-curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -n portworx -c kubectl -o PX
+curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -c kubectl -o PX
 ```
 ### Direct upload to FTPS 
 Direct FTP upload to ftps.purestorage.com can be performed through the script if you have the credentials associated with the corresponding case. You can use the optional -u and -p arguments to provide the username and password
 ```bash
-curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -n <namespace> -c <kubectl/oc> -o <PX/PXB> -u <ftpsusername> -p <ftpspassword>
+curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -c <kubectl/oc> -o <PX/PXB> -u <ftpsusername> -p <ftpspassword>
 ```
 ---
 
