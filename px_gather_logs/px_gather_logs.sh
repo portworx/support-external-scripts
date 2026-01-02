@@ -1163,6 +1163,8 @@ for i in "${!log_labels[@]}"; do
   # Check if current label is in the px_op_ds_labels set
   if printf '%s\n' "${px_op_ds_labels[@]}" | grep -Fxq "$label"; then
     label_value=$(echo "$label" | awk -F '=' '{print $2}')
+    not_ready_pods=()
+    ready_pods=()
     #check if it sin in PXCSI limit set and assign pxc_max_pods_logs or default 200
     if [[ " ${label} " =~ " ${pxc_op_ds_limit_labels[@]} " ]]; then
         max_logs=$pxc_max_pods_logs
