@@ -88,6 +88,7 @@ to_utc() {
 # --- Helper: perform analysis of output file ---
 perform_analysis() {
   local f="$1"
+  echo "Starting the validation of the exported metrics dump"
   if [[ ! -s "$f" ]]; then
     echo "Analysis: file is empty or missing."
     return
@@ -335,6 +336,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 # Package artifacts helper (called on success and on error)
 package_artifacts() {
+  echo "Compressing the generated metrics file"
   local tar_name="${OUTPUT_FILE}.tar.gz"
   local files=()
   [[ -f "$OUTPUT_FILE" ]] && files+=("$OUTPUT_FILE")
