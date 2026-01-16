@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.12.5"
+SCRIPT_VERSION="26.1.0"
 
 
 # Function to display usage
@@ -391,6 +391,7 @@ if [[ "$option" == "PX" ]]; then
     "get sc -o yaml"
     "get pvc -A -o wide"
     "get pvc -A -o yaml"
+    "describe pvc -A"
     "get pv"
     "get pv -o yaml"
     "get sn -n $namespace"
@@ -503,6 +504,7 @@ if [[ "$option" == "PX" ]]; then
     "k8s_oth/sc.yaml"
     "k8s_oth/pvc_list.txt"
     "k8s_oth/pvc_all.yaml"
+    "k8s_oth/pvc_desc_all.txt"
     "k8s_oth/pv_list.txt"
     "k8s_oth/pv_all.yaml"
     "k8s_px/px_storagenodes_list.txt"
@@ -877,6 +879,7 @@ else
     "get sc -o yaml"
     "get pvc -A -o wide"
     "get pvc -A -o yaml"
+    "describe pvc -A"
     "get pv"
     "get pv -o yaml"
     "get dataexports -A"
@@ -971,6 +974,7 @@ else
     "k8s_oth/sc.yaml"
     "k8s_oth/pvc_list.txt"
     "k8s_oth/pvc_all.yaml"
+    "k8s_oth/pvc_desc_all.txt"
     "k8s_oth/pv_list.txt"
     "k8s_oth/pv_all.yaml"
     "k8s_bkp/dataexports.txt"
