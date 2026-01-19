@@ -11,7 +11,7 @@ Collects logs and other information related to Portworx/PX Backup for issue anal
 ### Optional Parameters
 | **Parameter** | **Description**                                                                 | **Example**                          |
 |---------------|---------------------------------------------------------------------------------|--------------------------------------|
-| `-n`          | Portworx/PX backup installed Namespace                                          | `-n portworx`                        |
+| `-n`          | Portworx/PX backup installed Namespace/PX backup app cluster PVC Namespace      | `-n portworx`                        |
 | `-c`          | CLI tool to use (e.g., `kubectl` or `oc`)                                       | `-c kubectl`                         |
 | `-u`          | Pure Storage FTPS username for uploading logs                                   | `-u myusername`                      |
 | `-p`          | Pure Storage  FTPS password for uploading logs                                  | `-p mypassword`                      |
