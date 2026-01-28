@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="25.12.5"
+SCRIPT_VERSION="26.1.0"
 
 
 # Function to display usage
@@ -1257,20 +1257,12 @@ if $cli api-versions | grep -q 'openshift'; then
 fi
 
 # Execute other commands 
-print_progress 5
+#print_progress 5
 
-for i in "${!oth_commands[@]}"; do
-  cmd="${oth_commands[$i]}"
-  output_file="$output_dir/${oth_output_files[$i]}"
-  #echo "Executing:  $cmd"
-  $cmd > "$output_file" 2>&1
-  #echo "Output saved to: $output_file"
-  #echo ""
-  #echo "------------------------------------" 
-done
+
 
 #Check if kubevirt is enabled and get kubevirt configs only if kubevirt is enabled
-print_progress 6
+print_progress 5
 
 if $cli get crd | grep -q "virtualmachines.kubevirt.io"; then
   #echo "KubeVirt is likely enabled."
@@ -1285,7 +1277,7 @@ fi
 
 #Execute log extractions from other namespaces
 
-print_progress 7
+print_progress 6
 
 for i in "${!logs_oth_ns[@]}"; do
   label="${logs_oth_ns[$i]}"
@@ -1313,6 +1305,19 @@ for i in "${!logs_oth_ns[@]}"; do
 done
 
 #Execute Migration commands
+
+extract_oth_commands_op() {
+
+for i in "${!oth_commands[@]}"; do
+  cmd="${oth_commands[$i]}"
+  output_file="$output_dir/${oth_output_files[$i]}"
+  #echo "Executing:  $cmd"
+  $cmd > "$output_file" 2>&1
+  #echo "Output saved to: $output_file"
+  #echo ""
+  #echo "------------------------------------" 
+done
+}
 
 #print_progress 8
 extract_migration_op() {
@@ -1383,9 +1388,9 @@ extract_storkctl_op() {
 
 
 
-print_progress 8
+print_progress 7
 extract_masked_data
-print_progress 9
+print_progress 8
 extract_common_commands_op
 if $cli api-versions | grep -q 'openshift'; then
 extract_ocp_specific_commands_op
@@ -1393,9 +1398,12 @@ fi
 
 
 if [[ "$PXCSIV3" == "true" ]]; then
+  print_progress 9 skip
   print_progress 10 skip
   print_progress 11 skip
 else
+  print_progress 9
+  extract_oth_commands_op
   print_progress 10
   extract_migration_op
   print_progress 11
