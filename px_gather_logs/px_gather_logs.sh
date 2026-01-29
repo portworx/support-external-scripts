@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.1.0"
+SCRIPT_VERSION="26.1.1"
 
 
 # Function to display usage
@@ -746,7 +746,18 @@ if [[ "$option" == "PX" ]]; then
     "get pods -l kubevirt.io=virt-launcher -A -o yaml"
     "get virtualmachineinstancemigration -A"
     "get virtualmachineinstancemigration -A -o yaml"
-    
+    "get storagemaps -A"
+    "get storagemaps -A -o yaml"
+    "get networkmaps -A"
+    "get networkmaps -A -o yaml"
+    "get providers -A"
+    "get providers -A -o yaml"
+    "get plans -A"
+    "get plans -A -o yaml"
+    "get ovirtvolumepopulators -A"
+    "get ovirtvolumepopulators -A -o yaml"
+    "get vspherexcopyvolumepopulators -A"
+    "get vspherexcopyvolumepopulators -A -o yaml"
   )
   
    kubevirt_output=(
@@ -776,6 +787,18 @@ if [[ "$option" == "PX" ]]; then
     "kubevirt/kubevirt_virt_launcher_pods.yaml"
     "kubevirt/kubevirt_vminstancemigration.txt"
     "kubevirt/kubevirt_vminstancemigration.yaml"
+    "kubevirt/kubevirt_storagemaps.txt"
+    "kubevirt/kubevirt_storagemaps.yaml"
+    "kubevirt/kubevirt_networkmaps.txt"
+    "kubevirt/kubevirt_networkmaps.yaml"
+    "kubevirt/kubevirt_providers.txt"
+    "kubevirt/kubevirt_providers.yaml"
+    "kubevirt/kubevirt_plans.txt"
+    "kubevirt/kubevirt_plans.yaml"
+    "kubevirt/kubevirt_ovirtvolumepopulators.txt"
+    "kubevirt/kubevirt_ovirtvolumepopulators.yaml"
+    "kubevirt/kubevirt_vspherexcopyvolumepopulators.txt"
+    "kubevirt/kubevirt_vspherexcopyvolumepopulators.yaml"
     
   )
   
