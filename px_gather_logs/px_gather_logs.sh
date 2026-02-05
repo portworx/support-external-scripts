@@ -1405,7 +1405,13 @@ extract_storkctl_op() {
 
         # Run the CLI command and redirect output
        #$cli -n $namespace exec  get "$resource" --all-namespaces > "$output_file"
-       $cli -n $namespace exec service/stork-service -- bash -c "/storkctl/linux/storkctl get "$resource" --all-namespaces" > "$output_file" 2>&1
+       $cli -n $namespace exec service/stork-service -- bash -c '
+                if [ "$1" = "schedulepolicy" ]; then
+                    /storkctl/linux/storkctl get "$1"
+                else
+                    /storkctl/linux/storkctl get "$1" --all-namespaces
+                fi
+            ' _ "$resource" >"$output_file" 2>&1
     done
 }
 
