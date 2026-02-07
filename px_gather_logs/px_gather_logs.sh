@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.1.1"
+SCRIPT_VERSION="26.2.0"
 
 
 # Function to display usage
@@ -669,6 +669,8 @@ if [[ "$option" == "PX" ]]; then
     "app.kubernetes.io/component=node-plugin"
     "app.kubernetes.io/component=telemetry-plugin"
     "app.kubernetes.io/component=telemetry-registration"
+    "role=realtime-metrics-collector"
+    "app.kubernetes.io/instance=cert-manager"
     
   )
 
