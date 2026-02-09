@@ -671,6 +671,8 @@ if [[ "$option" == "PX" ]]; then
     "app.kubernetes.io/component=node-plugin"
     "app.kubernetes.io/component=telemetry-plugin"
     "app.kubernetes.io/component=telemetry-registration"
+    "role=realtime-metrics-collector"
+    "app.kubernetes.io/instance=cert-manager"
     
   )
 
