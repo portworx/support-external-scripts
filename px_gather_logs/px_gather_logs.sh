@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.2.0"
+SCRIPT_VERSION="26.2.1"
 
 
 # Function to display usage
@@ -370,9 +370,10 @@ if [[ "$option" == "PX" ]]; then
     "get pods -o wide -n $namespace"
     "get pods -o wide -n $namespace -o yaml"
     "describe pods -n $namespace"
-    "get nodes -o wide -n $namespace"
-    "get nodes -o wide -n $namespace -o yaml"
-    "describe nodes -n $namespace"
+    "get nodes -o wide"
+    "get nodes -o wide -o yaml"
+    "describe nodes"
+    "get nodes -L px/enabled,px/service,px/metadata-node,portworx.io/provision-storage-node,portworx.io/provision-storage-node-handled,portworx.io/node-type"
     "get events -A -o wide --sort-by=.lastTimestamp"
     "get deploy -o wide -n $namespace"
     "get deploy -o wide -n $namespace -o yaml"
@@ -485,6 +486,7 @@ if [[ "$option" == "PX" ]]; then
     "k8s_oth/k8s_nodes.txt"
     "k8s_oth/k8s_nodes.yaml"
     "k8s_oth/k8s_nodes_desc.txt"
+    "k8s_oth/k8s_nodes_px_labels.txt"
     "k8s_oth/k8s_events_all.txt"
     "k8s_px/px_deploy.txt"
     "k8s_px/px_deploy.yaml"
