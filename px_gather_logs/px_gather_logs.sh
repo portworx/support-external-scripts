@@ -1176,6 +1176,9 @@ px_op_ds_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portwor
 pxc_op_ds_limit_labels=("app.kubernetes.io/component=node-plugin")
 pxe_op_ds_limit_labels=("name=portworx")
 
+# Adding header for date check file
+echo "PX-POD-Status - BASTION_HOST_TIME | POD_NAME | PX_POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
+
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
   log_count=0
@@ -1184,8 +1187,6 @@ for i in "${!log_labels[@]}"; do
   # Get pods for current label
   if [[ "$option" == "PX" ]]; then
     PODS=($($cli get pods -n "$namespace" -l "$label" -o jsonpath="{.items[*].metadata.name}"))
-    # Adding header for date check file
-    echo "BASTION_HOST_TIME | POD_NAME | PX_POD_TIME" >> "${output_dir}/k8s_px/date_px_continers.out"
   else
     PODS=($($cli get pods -n "$namespace" -o jsonpath="{.items[*].metadata.name}"))
   fi
@@ -1242,7 +1243,7 @@ for i in "${!log_labels[@]}"; do
             NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
             BASTION_TIME=$(date "+%Y-%m-%d %H:%M:%S")
             POD_TIME=$($cli exec -n "$namespace" "$POD" -- date "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-            echo "[NOT-READY-POD] - $BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_continers.out"
+            echo "[NOT-READY-POD] - $BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
             ((date_count++))
           done
 
@@ -1251,7 +1252,7 @@ for i in "${!log_labels[@]}"; do
             NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
             BASTION_TIME=$(date "+%Y-%m-%d %H:%M:%S")
             POD_TIME=$($cli exec -n "$namespace" "$POD" -- date "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-            echo "[READY-POD]    -$BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_continers.out"
+            echo "[READY-POD]    - $BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
             ((date_count++))
           done
       fi
