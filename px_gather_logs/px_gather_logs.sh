@@ -1177,7 +1177,7 @@ pxc_op_ds_limit_labels=("app.kubernetes.io/component=node-plugin")
 pxe_op_ds_limit_labels=("name=portworx")
 
 # Adding header for date check file
-echo "PX-POD-Status - BASTION_HOST_TIME | POD_NAME | PX_POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
+echo "PX-POD-Status  - BASTION_HOST_TIME | POD_NAME | NODE_NAME | PX_POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
 
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
@@ -1243,7 +1243,7 @@ for i in "${!log_labels[@]}"; do
             NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
             BASTION_TIME=$(date "+%Y-%m-%d %H:%M:%S")
             POD_TIME=$($cli exec -n "$namespace" "$POD" -- date "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-            echo "[NOT-READY-POD] - $BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
+            echo "[NOT-READY-POD] - $BASTION_TIME | $POD | $NODE_NAME | $POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
             ((date_count++))
           done
 
@@ -1252,7 +1252,7 @@ for i in "${!log_labels[@]}"; do
             NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
             BASTION_TIME=$(date "+%Y-%m-%d %H:%M:%S")
             POD_TIME=$($cli exec -n "$namespace" "$POD" -- date "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-            echo "[READY-POD]    - $BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
+            echo "[READY-POD]    - $BASTION_TIME | $POD | $NODE_NAME | $POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
             ((date_count++))
           done
       fi
