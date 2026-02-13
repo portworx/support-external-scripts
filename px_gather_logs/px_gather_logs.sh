@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.2.1"
+SCRIPT_VERSION="26.2.2"
 
 
 # Function to display usage
@@ -1176,9 +1176,13 @@ px_op_ds_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portwor
 pxc_op_ds_limit_labels=("app.kubernetes.io/component=node-plugin")
 pxe_op_ds_limit_labels=("name=portworx")
 
+# Adding header for date check file
+echo "BASTION_HOST_TIME | POD_NAME | PX_POD_TIME" >> "${output_dir}/k8s_px/date_px_continers.out"
+ 
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
   log_count=0
+  date_count=0
 
   # Get pods for current label
   if [[ "$option" == "PX" ]]; then
@@ -1231,6 +1235,27 @@ for i in "${!log_labels[@]}"; do
       $cli logs -n "$namespace" "$POD" --tail -1 --all-containers > "$LOG_FILE"
       ((log_count++))
     done
+
+    # Getting date output from few pods
+    if [[ ${label_value} == portworx ]]; then
+          for POD in "${not_ready_pods[@]}"; do
+            if [[ $date_count -ge 2 ]]; then break; fi
+            NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
+            BASTION_TIME=$(date "+%Y-%m-%d %H:%M:%S")
+            POD_TIME=$($cli exec -n "$namespace" "$POD" -- date "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
+            echo "$BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_continers.out"
+            ((date_count++))
+          done
+
+            for POD in "${ready_pods[@]}"; do
+            if [[ $date_count -ge 5 ]]; then break; fi
+            NODE_NAME=$($cli get pods -n "$namespace" "$POD" -o jsonpath='{.spec.nodeName}')
+            BASTION_TIME=$(date "+%Y-%m-%d %H:%M:%S")
+            POD_TIME=$($cli exec -n "$namespace" "$POD" -- date "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
+            echo "$BASTION_TIME | $POD | $POD_TIME" >> "${output_dir}/k8s_px/date_px_continers.out"
+            ((date_count++))
+          done
+      fi
 
   else
     # No limit: dump logs for all matching pods
