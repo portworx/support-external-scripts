@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.2.2"
+SCRIPT_VERSION="26.2.3"
 
 
 # Function to display usage
@@ -1088,6 +1088,31 @@ ocp_px_commands_and_files=(
   "get csv -n "$namespace" -o yaml" "k8s_px/px_ocp_csv.yaml"
   )
 
+pxb_mongo_export() {
+  DB_PASS=$($cli -n $namespace get secret pxc-backup-mongodb --template='{{index .data "mongodb-root-password" | base64decode}}')"
+  $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
+      mongosh admin --username root --password "$DB_PASS" --quiet \
+      --eval 'const d = db.getSiblingDB("px-backup").backupobjects
+                        .find({})
+                        .toArray();
+              print(JSON.stringify(d));' \
+      > $output_dir/pxb_backupobjects.json
+  $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
+          mongosh admin --username root --password "$DB_PASS" --quiet \
+          --eval 'const d = db.getSiblingDB("px-backup").backupscheduleobjects
+                            .find({})
+                            .toArray();
+                  print(JSON.stringify(d));' \
+          > $output_dir/pxb_backupscheduleobjects.json
+  $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
+                  mongosh admin --username root --password "$DB_PASS" --quiet \
+                  --eval 'const d = db.getSiblingDB("px-backup").clusterobjects
+                                    .find({})
+                                    .toArray();
+                          print(JSON.stringify(d));' \
+                  > $output_dir/pxb_clusterobjects.json
+    }
+
 # Create a temporary directory for storing outputs
 #mkdir -p "$output_dir"
 #mkdir -p "${sub_dir[@]}"
@@ -1442,6 +1467,9 @@ extract_storkctl_op() {
 
 print_progress 7
 extract_masked_data
+if [[ "$option" == "PXB" ]]; then
+  pxb_mongo_export
+fi
 print_progress 8
 extract_common_commands_op
 if $cli api-versions | grep -q 'openshift'; then
