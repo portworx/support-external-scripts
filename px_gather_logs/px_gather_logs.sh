@@ -1089,29 +1089,34 @@ ocp_px_commands_and_files=(
   )
 
 pxb_mongo_export() {
-  DB_PASS=$($cli -n $namespace get secret pxc-backup-mongodb --template='{{index .data "mongodb-root-password" | base64decode}}')"
-  $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
+  DB_PASS=$($cli -n "$namespace" get secret pxc-backup-mongodb --template='{{index .data "mongodb-root-password" | base64decode}}')
+
+  # Helper to execute mongosh queries to keep the function DRY
+  # Usage: run_query <collection_name> <projection_json>
+  run_query() {
+    local collection=$1
+    local projection=${2:-"{}"}
+    
+    $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
       mongosh admin --username root --password "$DB_PASS" --quiet \
-      --eval 'const d = db.getSiblingDB("px-backup").backupobjects
-                        .find({})
-                        .toArray();
-              print(JSON.stringify(d));' \
-      > $output_dir/pxb_backupobjects.json
-  $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
-          mongosh admin --username root --password "$DB_PASS" --quiet \
-          --eval 'const d = db.getSiblingDB("px-backup").backupscheduleobjects
-                            .find({})
-                            .toArray();
-                  print(JSON.stringify(d));' \
-          > $output_dir/pxb_backupscheduleobjects.json
-  $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
-                  mongosh admin --username root --password "$DB_PASS" --quiet \
-                  --eval 'const d = db.getSiblingDB("px-backup").clusterobjects
-                                    .find({})
-                                    .toArray();
-                          print(JSON.stringify(d));' \
-                  > $output_dir/pxb_clusterobjects.json
-    }
+      --eval "const d = db.getSiblingDB('px-backup').${collection}.find({}, ${projection}).toArray(); print(JSON.stringify(d));"
+  }
+  ## 1. Backup Objects
+  run_query "backupobjects" > "$output_dir/k8s_pxb/pxb_backupobjects.json"
+
+  ## 2. Backup Schedule Objects
+  run_query "backupscheduleobjects" > "$output_dir/k8s_pxb/pxb_backupscheduleobjects.json"
+
+  ## 3. Cluster Objects (Excluding kubeconfig for security)
+  run_query "clusterobjects" '{ "clusterInfo.kubeconfig": 0 }' > "$output_dir/k8s_pxb/pxb_clusterobjects.json"
+
+  ## 4. Backup Location Objects
+  run_query "backuplocationobjects" > "$output_dir/k8s_pxb/pxb_backuplocationobjects.json"
+
+  ## 5. Schedule Policy Objects
+  run_query "schedulepolicyobjects" > "$output_dir/k8s_pxb/pxb_schedulepolicyobjects.json"
+
+}
 
 # Create a temporary directory for storing outputs
 #mkdir -p "$output_dir"
@@ -1202,7 +1207,9 @@ pxc_op_ds_limit_labels=("app.kubernetes.io/component=node-plugin")
 pxe_op_ds_limit_labels=("name=portworx")
 
 # Adding header for date check file
+if [[ "$option" == "PX" ]]; then
 echo "PX-POD-Status  - BASTION_HOST_TIME | POD_NAME | NODE_NAME | PX_POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
+fi
 
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
@@ -1283,13 +1290,14 @@ for i in "${!log_labels[@]}"; do
       fi
 
   else
-    # No limit: dump logs for all matching pods
+    # limit to 10: dump logs for all matching pods
     for POD in "${PODS[@]}"; do
+      if [[ $log_count -ge 10 ]]; then break; fi
       LOG_FILE="${output_dir}/logs/${POD}.log"
       $cli logs -n "$namespace" "$POD" --tail -1 --all-containers > "$LOG_FILE"
+      ((log_count++))
     done
   fi
-
 done
 
 
