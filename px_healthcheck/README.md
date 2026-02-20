@@ -236,13 +236,7 @@ Total: 1 error(s), 2 warning(s)
 
 Ensure you have proper cluster connectivity and permissions. The script validates kubeconfig and cluster access before proceeding.
 
-  
 
-###  PX-Security authentication errors
-
-The script automatically detects PX-Security enabled clusters and retrieves the auth token from the `px-admin-token` secret.
-
-  
 
 ###  Air-gapped environments
 
