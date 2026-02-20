@@ -97,21 +97,6 @@ chmod +x  px_healthcheck.sh
 
   
 
-###  Execute Using Curl
-
-  
-
-You can download and execute the script directly from GitHub:
-
-  
-
-```bash
-
-curl -ssL  https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_healthcheck/px_healthcheck.sh  | bash
-
-```
-
-  
 
 ###  Interactive Prompts
 
