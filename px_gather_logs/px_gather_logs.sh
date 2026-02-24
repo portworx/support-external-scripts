@@ -1290,14 +1290,13 @@ for i in "${!log_labels[@]}"; do
       fi
 
   else
-    # limit to 10: dump logs for all matching pods
+    # No limit: dump logs for all matching pods
     for POD in "${PODS[@]}"; do
-      if [[ $log_count -ge 10 ]]; then break; fi
       LOG_FILE="${output_dir}/logs/${POD}.log"
       $cli logs -n "$namespace" "$POD" --tail -1 --all-containers > "$LOG_FILE"
-      ((log_count++))
     done
   fi
+
 done
 
 
