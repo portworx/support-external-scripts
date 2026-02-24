@@ -349,7 +349,7 @@ if [[ "$option" == "PX" ]]; then
      sub_dir=(${output_dir}/logs/previous ${output_dir}/px_out ${output_dir}/k8s_px ${output_dir}/k8s_oth ${output_dir}/migration ${output_dir}/k8s_bkp ${output_dir}/k8s_pxb ${output_dir}/storkctl_out)
   fi
 else
-  sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_pxb ${output_dir}/k8s_oth ${output_dir}/k8s_bkp)
+  sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_pxb ${output_dir}/k8s_oth ${output_dir}/k8s_bkp ${output_dir}/pxb_db_collections)
 fi
 
 mkdir -p "$output_dir"
@@ -1102,19 +1102,19 @@ pxb_mongo_export() {
       --eval "const d = db.getSiblingDB('px-backup').${collection}.find({}, ${projection}).toArray(); print(JSON.stringify(d));"
   }
   ## 1. Backup Objects
-  run_query "backupobjects" > "$output_dir/k8s_pxb/pxb_backupobjects.json"
+  run_query "backupobjects" > "$output_dir/pxb_db_collections/pxb_backupobjects.json"
 
   ## 2. Backup Schedule Objects
-  run_query "backupscheduleobjects" > "$output_dir/k8s_pxb/pxb_backupscheduleobjects.json"
+  run_query "backupscheduleobjects" > "$output_dir/pxb_db_collections/pxb_backupscheduleobjects.json"
 
   ## 3. Cluster Objects (Excluding kubeconfig for security)
-  run_query "clusterobjects" '{ "clusterInfo.kubeconfig": 0 }' > "$output_dir/k8s_pxb/pxb_clusterobjects.json"
+  run_query "clusterobjects" '{ "clusterInfo.kubeconfig": 0 }' > "$output_dir/pxb_db_collections/pxb_clusterobjects.json"
 
   ## 4. Backup Location Objects
-  run_query "backuplocationobjects" > "$output_dir/k8s_pxb/pxb_backuplocationobjects.json"
+  run_query "backuplocationobjects" > "$output_dir/pxb_db_collections/pxb_backuplocationobjects.json"
 
   ## 5. Schedule Policy Objects
-  run_query "schedulepolicyobjects" > "$output_dir/k8s_pxb/pxb_schedulepolicyobjects.json"
+  run_query "schedulepolicyobjects" > "$output_dir/pxb_db_collections/pxb_schedulepolicyobjects.json"
 
 }
 
