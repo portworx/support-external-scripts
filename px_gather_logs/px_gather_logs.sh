@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.2.2"
+SCRIPT_VERSION="26.2.3"
 
 
 # Function to display usage
@@ -349,7 +349,7 @@ if [[ "$option" == "PX" ]]; then
      sub_dir=(${output_dir}/logs/previous ${output_dir}/px_out ${output_dir}/k8s_px ${output_dir}/k8s_oth ${output_dir}/migration ${output_dir}/k8s_bkp ${output_dir}/k8s_pxb ${output_dir}/storkctl_out)
   fi
 else
-  sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_pxb ${output_dir}/k8s_oth ${output_dir}/k8s_bkp)
+  sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_pxb ${output_dir}/k8s_oth ${output_dir}/k8s_bkp ${output_dir}/pxb_db_collections)
 fi
 
 mkdir -p "$output_dir"
@@ -1088,6 +1088,36 @@ ocp_px_commands_and_files=(
   "get csv -n "$namespace" -o yaml" "k8s_px/px_ocp_csv.yaml"
   )
 
+pxb_mongo_export() {
+  DB_PASS=$($cli -n "$namespace" get secret pxc-backup-mongodb --template='{{index .data "mongodb-root-password" | base64decode}}')
+
+  # Helper to execute mongosh queries to keep the function DRY
+  # Usage: run_query <collection_name> <projection_json>
+  run_query() {
+    local collection=$1
+    local projection=${2:-"{}"}
+    
+    $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
+      mongosh admin --username root --password "$DB_PASS" --quiet \
+      --eval "const d = db.getSiblingDB('px-backup').${collection}.find({}, ${projection}).toArray(); print(JSON.stringify(d));"
+  }
+  ## 1. Backup Objects
+  run_query "backupobjects" > "$output_dir/pxb_db_collections/pxb_backupobjects.json"
+
+  ## 2. Backup Schedule Objects
+  run_query "backupscheduleobjects" > "$output_dir/pxb_db_collections/pxb_backupscheduleobjects.json"
+
+  ## 3. Cluster Objects (Excluding kubeconfig for security)
+  run_query "clusterobjects" '{ "clusterInfo.kubeconfig": 0 }' > "$output_dir/pxb_db_collections/pxb_clusterobjects.json"
+
+  ## 4. Backup Location Objects
+  run_query "backuplocationobjects" > "$output_dir/pxb_db_collections/pxb_backuplocationobjects.json"
+
+  ## 5. Schedule Policy Objects
+  run_query "schedulepolicyobjects" > "$output_dir/pxb_db_collections/pxb_schedulepolicyobjects.json"
+
+}
+
 # Create a temporary directory for storing outputs
 #mkdir -p "$output_dir"
 #mkdir -p "${sub_dir[@]}"
@@ -1177,7 +1207,9 @@ pxc_op_ds_limit_labels=("app.kubernetes.io/component=node-plugin")
 pxe_op_ds_limit_labels=("name=portworx")
 
 # Adding header for date check file
+if [[ "$option" == "PX" ]]; then
 echo "PX-POD-Status  - BASTION_HOST_TIME | POD_NAME | NODE_NAME | PX_POD_TIME" >> "${output_dir}/k8s_px/date_px_containers.out"
+fi
 
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
@@ -1442,6 +1474,9 @@ extract_storkctl_op() {
 
 print_progress 7
 extract_masked_data
+if [[ "$option" == "PXB" ]]; then
+  pxb_mongo_export
+fi
 print_progress 8
 extract_common_commands_op
 if $cli api-versions | grep -q 'openshift'; then
