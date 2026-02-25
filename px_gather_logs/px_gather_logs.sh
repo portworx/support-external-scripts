@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.2.3"
+SCRIPT_VERSION="26.2.4"
 
 
 # Function to display usage
@@ -476,6 +476,7 @@ if [[ "$option" == "PX" ]]; then
     "get storagenodeinitiators -o yaml"
     "get purestoragecluster -n $namespace"
     "get purestoragecluster -n $namespace -o yaml"
+    "get cm -n $namespace -o yaml"
     
     
   )
@@ -589,6 +590,7 @@ if [[ "$option" == "PX" ]]; then
     "k8s_px/storagenodeinitiators.yaml"
     "k8s_px/purestoragecluster.txt"
     "k8s_px/purestoragecluster.yaml"
+    "k8s_px/px_cm.yaml"
 
 
   )
