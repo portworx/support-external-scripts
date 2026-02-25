@@ -476,7 +476,7 @@ if [[ "$option" == "PX" ]]; then
     "get storagenodeinitiators -o yaml"
     "get purestoragecluster -n $namespace"
     "get purestoragecluster -n $namespace -o yaml"
-    "get cm -n $namespace -o yaml"
+    "get cm px-telemetry-collector px-telemetry-collector-proxy  px-telemetry-phonehome px-telemetry-phonehome-proxy px-telemetry-register px-telemetry-register-proxy -n $namespace -o yaml"
     
     
   )
@@ -590,7 +590,7 @@ if [[ "$option" == "PX" ]]; then
     "k8s_px/storagenodeinitiators.yaml"
     "k8s_px/purestoragecluster.txt"
     "k8s_px/purestoragecluster.yaml"
-    "k8s_px/px_cm.yaml"
+    "k8s_px/px_telemtry_cm.yaml"
 
 
   )
