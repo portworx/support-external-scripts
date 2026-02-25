@@ -476,8 +476,7 @@ if [[ "$option" == "PX" ]]; then
     "get storagenodeinitiators -o yaml"
     "get purestoragecluster -n $namespace"
     "get purestoragecluster -n $namespace -o yaml"
-    "get cm px-telemetry-collector px-telemetry-collector-proxy  px-telemetry-phonehome px-telemetry-phonehome-proxy px-telemetry-register px-telemetry-register-proxy -n $namespace -o yaml"
-    
+    "get cm -n $namespace -o name | grep telemetry | xargs -I {} $cli get {} -n $namespace -o yaml"
     
   )
   output_files=(
