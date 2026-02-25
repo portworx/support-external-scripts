@@ -824,7 +824,7 @@ data_masking_commands=(
     "k8s_px/px-pure-secret_masked.yaml"
     "k8s_px/px_stc.yaml"
     "k8s_px/px_stc_desc.txt"
-    "k8s_px/px_telemetry_cm.yaml
+    "k8s_px/px_telemetry_cm.yaml"
 
   )
  storkctl_resources=(
