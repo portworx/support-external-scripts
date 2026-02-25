@@ -476,7 +476,6 @@ if [[ "$option" == "PX" ]]; then
     "get storagenodeinitiators -o yaml"
     "get purestoragecluster -n $namespace"
     "get purestoragecluster -n $namespace -o yaml"
-    "get cm -n $namespace -o name | grep telemetry | xargs -I {} $cli get {} -n $namespace -o yaml"
     
   )
   output_files=(
@@ -589,7 +588,6 @@ if [[ "$option" == "PX" ]]; then
     "k8s_px/storagenodeinitiators.yaml"
     "k8s_px/purestoragecluster.txt"
     "k8s_px/purestoragecluster.yaml"
-    "k8s_px/px_telemtry_cm.yaml"
 
 
   )
@@ -814,16 +812,19 @@ logs_oth_ns=(
     "kdmp.portworx.com/driver-name=kopiabackup"
     "kdmp.portworx.com/driver-name=nfsbackup"
 )
+
+#data masking or complex commands
 data_masking_commands=(
     "$cli get secret px-pure-secret -n $namespace -o jsonpath='{.data.pure\\.json}' | base64 --decode | sed -E 's/\"APIToken\": *\"[^\"]*\"/\"APIToken\": \"*****Masked*****\"/'"
     "$cli get storagecluster -n $namespace -o yaml | awk '/ACCESS_KEY|SECRET_ACCESS/{p=1;print;next}p==1{sub(/value:.*/,\"value: \\\"****masked****\\\"\");p=0}1'"
     "$cli describe storagecluster -n $namespace | sed -E '/^[[:space:]]*Name:[[:space:]]*(.*ACCESS_KEY.*|.*SECRET_ACCESS.*)[[:space:]]*$/ { n; s/^([[:space:]]*Value:[[:space:]]*).*/\1"****masked****"/; }'"
-
+    "$cli get cm -n $namespace -o name | grep telemetry | xargs -I {} $cli get {} -n $namespace -o yaml"
   )
   data_masking_output=(
     "k8s_px/px-pure-secret_masked.yaml"
     "k8s_px/px_stc.yaml"
     "k8s_px/px_stc_desc.txt"
+    "k8s_px/px_telemetry_cm.yaml
 
   )
  storkctl_resources=(
