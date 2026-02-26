@@ -1168,7 +1168,11 @@ else
   $cli top node > "$output_dir/k8s_oth/top_nodes.txt" 2>&1
 fi
 
-export MSYS_NO_PATHCONV=1 # Avoid erroring the command in windows gitbash
+case "$OSTYPE" in
+  msys*|cygwin*)
+    export MSYS_NO_PATHCONV=1 # Avoid erroring the command in windows gitbash
+    ;;
+esac
 
 # Execute pxctl commands 
 
