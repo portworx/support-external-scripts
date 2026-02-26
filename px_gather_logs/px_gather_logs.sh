@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.2.4"
+SCRIPT_VERSION="26.2.5"
 
 
 # Function to display usage
@@ -1168,6 +1168,11 @@ else
   $cli top node > "$output_dir/k8s_oth/top_nodes.txt" 2>&1
 fi
 
+case "$OSTYPE" in
+  msys*|cygwin*)
+    export MSYS_NO_PATHCONV=1 # Avoid erroring the command in windows gitbash
+    ;;
+esac
 
 # Execute pxctl commands 
 
