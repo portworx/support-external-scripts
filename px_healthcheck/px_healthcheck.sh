@@ -5,7 +5,6 @@
 # version - 1.5
 
 
-
 set -e
 
 # Color codes for output
@@ -429,6 +428,22 @@ pxctl_status() {
     fi
 
     print_info "pxctl status command completed successfully."
+
+    # Extract and display cluster status, ID, and UUID
+    local cluster_status cluster_id cluster_uuid
+    cluster_status=$(echo "$output" | grep "Status:" | head -1 | sed 's/.*Status:[[:space:]]*//')
+    cluster_id=$(echo "$output" | grep "Cluster ID:" | head -1 | sed 's/.*Cluster ID:[[:space:]]*//')
+    cluster_uuid=$(echo "$output" | grep "Cluster UUID:" | head -1 | sed 's/.*Cluster UUID:[[:space:]]*//')
+
+    if [[ -n "$cluster_status" ]]; then
+        print_info "Status: $cluster_status"
+    fi
+    if [[ -n "$cluster_id" ]]; then
+        print_info "Cluster ID: $cluster_id"
+    fi
+    if [[ -n "$cluster_uuid" ]]; then
+        print_info "Cluster UUID: $cluster_uuid"
+    fi
 
     # Extract and display cluster version
     # Version appears in the node listing, typically after "Up" or "Up (This node)"
@@ -892,12 +907,13 @@ volume_resync_status_check() {
 
     local inner_script='
 for vol_id in $(/opt/pwx/bin/pxctl volume list 2>/dev/null | awk "NR>1 && NF>0 {print \$1}"); do
-    inspect=$(/opt/pwx/bin/pxctl volume inspect "$vol_id" 2>/dev/null)
-    if echo "$inspect" | grep -q "Replication Status.*:.*Resync"; then
-        # Extract name and status - format is "        Name                     :  volume-name"
-        name=$(echo "$inspect" | awk -F: "/^[[:space:]]*Name[[:space:]]*:/{gsub(/^[[:space:]]+/,\"\",\$2);print \$2;exit}")
-        status=$(echo "$inspect" | awk -F: "/^[[:space:]]*Status[[:space:]]*:/{gsub(/^[[:space:]]+/,\"\",\$2);print \$2;exit}")
-        echo "RESYNC|${vol_id}|${name}|${status}"
+    inspect=$(/opt/pwx/bin/pxctl volume inspect "$vol_id" -j 2>/dev/null)
+    if echo "$inspect" | grep -qi "resync"; then
+        # Extract name and status from JSON
+        name=$(echo "$inspect" | sed -n "s/.*\"name\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1)
+        status=$(echo "$inspect" | sed -n "s/.*\"status\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1)
+        state=$(echo "$inspect" | sed -n "s/.*\"state\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1)
+        echo "RESYNC|${vol_id}|${name}|${status} - ${state}"
     fi
 done
 '
@@ -1271,46 +1287,42 @@ check_flasharray() {
         fi
 
         # Step 5a: Login to get x-auth-token
+        # All curl commands are executed from inside the Portworx pod for network access
         local login_response
         local http_code
         local x_auth_token
         local curl_exit_code
 
-        # Use curl to login and capture both response and headers
+        # Use curl from inside the Portworx pod to login and capture headers
         # --connect-timeout 30: Wait up to 30 seconds for connection
         # --max-time 60: Total operation timeout of 60 seconds
-        login_response=$(curl -s -k --connect-timeout 30 --max-time 60 -w "\n%{http_code}" -X POST \
+        login_response=$($cmd -n "$PX_NAMESPACE" exec "$SELECTED_POD" -- \
+            curl -s -k --connect-timeout 30 --max-time 60 -D - -X POST \
             "https://${endpoint}/api/2.2/login" \
             -H "api-token: ${api_token}" 2>/dev/null)
         curl_exit_code=$?
 
-        # Check if curl itself failed (network error, timeout, etc.)
+        # Check if kubectl exec or curl failed
         if [[ $curl_exit_code -ne 0 ]]; then
-            print_error "  Unable to connect to FlashArray $endpoint (curl exit code: $curl_exit_code)"
+            print_error "  Unable to connect to FlashArray $endpoint (exit code: $curl_exit_code)"
             print_error "  Please check FlashArray connectivity and health manually."
             continue
         fi
 
-        http_code=$(echo "$login_response" | tail -n1)
-        local login_body
-        login_body=$(echo "$login_response" | sed '$d')
-
-        if [[ -z "$http_code" ]] || [[ "$http_code" == "000" ]]; then
-            print_error "  Connection to FlashArray $endpoint failed - no response received."
-            print_error "  Please check FlashArray connectivity and health manually."
-            continue
-        fi
-
-        if [[ "$http_code" != "200" ]]; then
-            print_error "  Login failed to FlashArray $endpoint (HTTP $http_code)"
+        # Check for HTTP 200 in the response headers
+        if ! echo "$login_response" | grep -q "HTTP.*200"; then
+            http_code=$(echo "$login_response" | grep "HTTP" | head -1 | awk '{print $2}')
+            if [[ -z "$http_code" ]]; then
+                print_error "  Connection to FlashArray $endpoint failed - no response received."
+            else
+                print_error "  Login failed to FlashArray $endpoint (HTTP $http_code)"
+            fi
             print_error "  Please verify the API token is valid and the FlashArray is reachable."
             continue
         fi
 
-        # Get x-auth-token from a separate curl call with headers
-        x_auth_token=$(curl -s -k --connect-timeout 30 --max-time 60 -D - -X POST \
-            "https://${endpoint}/api/2.2/login" \
-            -H "api-token: ${api_token}" 2>/dev/null | grep -i "x-auth-token:" | awk '{print $2}' | tr -d '\r')
+        # Extract x-auth-token from response headers
+        x_auth_token=$(echo "$login_response" | grep -i "x-auth-token:" | awk '{print $2}' | tr -d '\r\n')
 
         if [[ -z "$x_auth_token" ]]; then
             print_error "  Failed to obtain x-auth-token from FlashArray $endpoint"
@@ -1323,9 +1335,10 @@ check_flasharray() {
         #API calls for FA is here:
         #  https://code.purestorage.com/swagger/redoc/fa2.35-api-reference.html#tag/Arrays/paths/~1api~12.35~1arrays~1ntp-test/get
         
-        # Step 5b: Get space/capacity information
+        # Step 5b: Get space/capacity information (from inside Portworx pod)
         local space_response
-        space_response=$(curl -s -k --connect-timeout 30 --max-time 60 \
+        space_response=$($cmd -n "$PX_NAMESPACE" exec "$SELECTED_POD" -- \
+            curl -s -k --connect-timeout 30 --max-time 60 \
             -H "x-auth-token: ${x_auth_token}" \
             "https://${endpoint}/api/2.35/arrays/space" 2>/dev/null)
         curl_exit_code=$?
@@ -1394,11 +1407,12 @@ check_flasharray() {
             fi
         fi
 
-        # Step 5c: Get performance information
+        # Step 5c: Get performance information (from inside Portworx pod)
         echo ""
         print_info "  Retrieving performance metrics..."
         local perf_response
-        perf_response=$(curl -s -k --connect-timeout 30 --max-time 60 \
+        perf_response=$($cmd -n "$PX_NAMESPACE" exec "$SELECTED_POD" -- \
+            curl -s -k --connect-timeout 30 --max-time 60 \
             -H "x-auth-token: ${x_auth_token}" \
             "https://${endpoint}/api/2.35/arrays/performance" 2>/dev/null)
         curl_exit_code=$?
@@ -1624,7 +1638,7 @@ main() {
     echo "  Portworx Pre-Upgrade Health Check"
     echo "=========================================="
     echo ""
-    echo "This script will do a general health check of the Portworx."
+    echo "This script will do a general health check of the Portworx Cluster."
     echo "It does not make any changes to the Portworx cluster or settings."
     echo ""
 
@@ -1660,9 +1674,29 @@ main() {
     manual_image_check
     check_flasharray
     px_alerts_show
-    check_nbdd
-    fix_vps_frequency
 
+    # NBDD check only runs on PX 3.5.0 or greater
+    if [[ -n "$PX_CLUSTER_VERSION" ]]; then
+        # Extract major.minor.patch from version (e.g., "3.5.2" from "3.5.2.0-86e5708")
+        local version_prefix
+        version_prefix=$(echo "$PX_CLUSTER_VERSION" | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+
+        if [[ -n "$version_prefix" ]]; then
+            local major minor
+            major=$(echo "$version_prefix" | cut -d. -f1)
+            minor=$(echo "$version_prefix" | cut -d. -f2)
+
+            # Version is >= 3.5.0 if: major > 3, OR (major == 3 AND minor >= 5)
+            if [[ "$major" -gt 3 ]] || { [[ "$major" -eq 3 ]] && [[ "$minor" -ge 5 ]]; }; then
+                check_nbdd
+            else
+                echo ""
+                #print_info "Cluster version $PX_CLUSTER_VERSION is below 3.5.0. Skipping NBDD check (NBDD requires PX 3.5.0+)."
+            fi
+        fi
+    fi
+
+    fix_vps_frequency
     # Run cluster data bundle backup at the end
     cluster_data_bundle_backup
 
