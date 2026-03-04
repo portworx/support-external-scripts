@@ -16,7 +16,6 @@ BUNDLE_DIR="px_kvdb_bundle_${TIMESTAMP}"
 OUTPUT_DIR="/tmp/${BUNDLE_DIR}"
 ARCHIVE="${OUTPUT_DIR}.tar.gz"
 
-mkdir ${OUTPUT_DIR}
 
 echo "[INFO] Starting px KVDB bundle collection..."
 
@@ -49,8 +48,7 @@ fi
 # Prepare bundle directory
 ############################################
 
-rm -rf "${BUNDLE_DIR}"
-mkdir -p "${BUNDLE_DIR}"
+mkdir -p ${OUTPUT_DIR}
 
 ############################################
 # 2) Collect pxctl kvdb + status and select
@@ -59,8 +57,8 @@ mkdir -p "${BUNDLE_DIR}"
 
 echo "[INFO] Collecting pxctl kvdb and status information..."
 
-pxctl service kvdb members > "${BUNDLE_DIR}/pxctl_service_kvdb_members.txt" 2>&1 || true
-pxctl status > "${BUNDLE_DIR}/pxctl_status.txt" 2>&1 || true
+pxctl service kvdb members > "${OUTPUT_DIR}/pxctl_service_kvdb_members.txt" 2>&1 || true
+pxctl status > "${OUTPUT_DIR}/pxctl_status.txt" 2>&1 || true
 
 # Build node-id -> IP map from pxctl status
 declare -A NODEID_TO_IP
@@ -139,6 +137,14 @@ echo "[INFO] Running etcdctl get --keys-only --prefix 'pwx'..."
 echo "[INFO] Running etcdctl get --prefix 'pwx/${clusterID}/cluster/database'..."
 "${ETCDCTL_CMD}" --endpoints="${ENDPOINTS}" get --prefix "pwx/${clusterID}/cluster/database" \
   > "${OUTPUT_DIR}/etcdctl_get_cluster_database.txt" 2>&1 || true
+
+echo "[INFO] Running etcdctl get --prefix 'pwx/${clusterID}/storage/cloudsnap'..."
+"${ETCDCTL_CMD}" --endpoints="${ENDPOINTS}" get --prefix "pwx/${clusterID}/storage/cloudsnap" \
+  > "${OUTPUT_DIR}/etcdctl_get_storage_cloudsnap.txt" 2>&1 || true
+
+echo "[INFO] Running etcdctl get --prefix 'pwx/${clusterID}/storage/cloudsnap/v2.deletes'..."
+"${ETCDCTL_CMD}" --endpoints="${ENDPOINTS}" get --prefix "pwx/${clusterID}/storage/cloudsnap/v2.deletes" \
+  > "${OUTPUT_DIR}/etcdctl_get_storage_cloudsnap_v2deletes.txt" 2>&1 || true
 
 ############################################
 # Archive the bundle
