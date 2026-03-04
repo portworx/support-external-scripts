@@ -11,6 +11,8 @@
 
 set -euo pipefail
 
+SCRIPT_VERSION="26.3.1"
+
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BUNDLE_DIR="px_kvdb_bundle_${TIMESTAMP}"
 OUTPUT_DIR="/tmp/${BUNDLE_DIR}"
@@ -102,7 +104,7 @@ ENDPOINTS="http://${ip}:${port}"
 
 echo "[INFO] Selected non-leader, healthy KVDB member: ${member_id} (${ip}:${port})"
 echo "[INFO] Using ETCD endpoints: ${ENDPOINTS}"
-echo "${ENDPOINTS}" > "${BUNDLE_DIR}/etcd_endpoints.txt"
+echo "${ENDPOINTS}" > "${OUTPUT_DIR}/etcd_endpoints.txt"
 
 ############################################
 # 3) Get clusterID from pxctl status
@@ -118,7 +120,7 @@ if [[ -z "${clusterID}" ]]; then
 fi
 
 echo "[INFO] Detected Cluster ID: ${clusterID}"
-echo "${clusterID}" > "${BUNDLE_DIR}/cluster_id.txt"
+echo "${clusterID}" > "${OUTPUT_DIR}/cluster_id.txt"
 
 ############################################
 # 4) Run etcdctl commands and store outputs
