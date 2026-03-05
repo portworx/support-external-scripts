@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.2.5"
+SCRIPT_VERSION="26.3.1"
 
 
 # Function to display usage
@@ -404,6 +404,8 @@ if [[ "$option" == "PX" ]]; then
     "get pdb -n $namespace -o yaml"
     "get pods -n kube-system -o wide"
     "version"
+    "get controllerrevisions -n $namespace"
+    "get controllerrevisions -n $namespace -o yaml"
     "api-resources -o wide"
     "get autopilotrules"
     "get autopilotrules -o yaml"
@@ -516,6 +518,8 @@ if [[ "$option" == "PX" ]]; then
     "k8s_px/px_pdb.yaml"
     "k8s_oth/pods_kube_system.txt"
     "k8s_oth/k8s_version.txt"
+    "k8s_px/px_controllerrevisions.txt"
+    "k8s_px/px_controllerrevisions.yaml"
     "k8s_oth/k8s_api_resources.txt"
     "k8s_px/autopilotrules.txt"
     "k8s_px/autopilotrules.yaml"
@@ -908,6 +912,8 @@ else
     "get pvc -A -o yaml"
     "get pv"
     "get pv -o yaml"
+    "get controllerrevisions -n $namespace"
+    "get controllerrevisions -n $namespace -o yaml"
     "get dataexports -A"
     "get prometheuses -A"
     "get prometheuses -A -o yaml"
@@ -1002,6 +1008,8 @@ else
     "k8s_oth/pvc_all.yaml"
     "k8s_oth/pv_list.txt"
     "k8s_oth/pv_all.yaml"
+    "k8s_pxb/pxb_controllerrevisions.txt" 
+    "k8s_pxb/pxb_controllerrevisions.yaml" 
     "k8s_bkp/dataexports.txt"
     "k8s_oth/prometheuses_list.txt"
     "k8s_oth/prometheuses.yaml"
