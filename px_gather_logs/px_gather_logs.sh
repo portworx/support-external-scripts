@@ -1463,7 +1463,7 @@ extract_ocp_specific_commands_op() {
 
   if [[ "$option" == "PX" ]]; then
     $cli get operators -A -o wide > $output_dir/k8s_oth/oc_operators_list.txt
-    $cli get operators portworx-sertified.portworx -o yaml > $output_dir/k8s_oth/oc_operators_portworx.yaml
+    $cli get operators portworx-certified.portworx -o yaml > $output_dir/k8s_oth/oc_operators_portworx.yaml
     for ((i=0; i<${#ocp_px_commands_and_files[@]}; i+=2)); do
       cmd="${ocp_px_commands_and_files[i]}"
       output_file="$output_dir/${ocp_px_commands_and_files[i+1]}"
