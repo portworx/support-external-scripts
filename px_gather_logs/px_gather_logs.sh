@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.3.1"
+SCRIPT_VERSION="26.3.2"
 
 
 # Function to display usage
@@ -114,7 +114,7 @@ fi
 
 
 # Check if the CLI command works
-if ! $cli cluster-info &> /dev/null; then
+if ! $cli get namespaces &> /dev/null; then
   print_info "Error: '$cli' is available but not functioning correctly. Ensure you have the necessary permissions to execute '$cli' commands on the cluster."
   exit 1
 fi
