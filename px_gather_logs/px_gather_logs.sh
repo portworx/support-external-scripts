@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.3.2"
+SCRIPT_VERSION="26.3.3"
 
 
 # Function to display usage
@@ -1096,6 +1096,8 @@ ocp_px_commands_and_files=(
   "get console.config -o yaml" "k8s_oth/ocp_console_config.yaml"
   "get console.operator -o yaml" "k8s_oth/ocp_console_operator.yaml"
   "get csv -n "$namespace" -o yaml" "k8s_px/px_ocp_csv.yaml"
+  "get operators -A -o wide" "k8s_oth/oc_operators_list.txt"
+  "get operators portworx-certified.portworx -o yaml" "k8s_oth/oc_operators_portworx.yaml"
   )
 
 pxb_mongo_export() {
