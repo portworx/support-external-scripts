@@ -355,7 +355,7 @@ fi
 # Common directories
 common_dirs=(
   "${output_dir}/logs/previous"
-  "${output_dir}/logs/kube_component"
+  "${output_dir}/logs/kube_components"
   "${output_dir}/cluster"
   "${output_dir}/storage"
   "${output_dir}/px_backup"
@@ -370,7 +370,7 @@ sub_dir=("${common_dirs[@]}")
 
 if [[ "$option" == "PX" ]]; then
   sub_dir+=(
-      "${output_dir}/portworx/workload"
+      "${output_dir}/portworx/workloads"
       "${output_dir}/portworx/px_csi"
     )
   
@@ -518,17 +518,17 @@ if [[ "$option" == "PX" ]]; then
     
   )
   output_files=(
-    "portworx/workload/px_pods.txt"
-    "portworx/workload/px_pods.yaml"
-    "portworx/workload/px_pods_desc.txt"
+    "portworx/workloads/px_pods.txt"
+    "portworx/workloads/px_pods.yaml"
+    "portworx/workloads/px_pods_desc.txt"
     "cluster/k8s_nodes.txt"
     "cluster/k8s_nodes.yaml"
     "cluster/k8s_nodes_desc.txt"
     "portworx/k8s_nodes_px_labels.txt"
     "cluster/k8s_events_all.txt"
-    "portworx/workload/px_deploy.txt"
-    "portworx/workload/px_deploy.yaml"
-    "portworx/workload/px_deploy_desc.txt"
+    "portworx/workloads/px_deploy.txt"
+    "portworx/workloads/px_deploy.yaml"
+    "portworx/workloads/px_deploy_desc.txt"
     "storage/volumeattachments.txt"
     "storage/volumeattachments.yaml"
     "storage/csidrivers.txt"
@@ -550,7 +550,7 @@ if [[ "$option" == "PX" ]]; then
     "policies/mutatingwebhookconfiguration.yaml"
     "portworx/px_svc_ep.txt"
     "portworx/px_svc_ep.yaml"
-    "portworx/workload/px_ds.yaml"
+    "portworx/workloads/px_ds.yaml"
     "portworx/px_pdb.txt"
     "portworx/px_pdb.yaml"
     "cluster/pods_kube_system.txt"
@@ -1361,7 +1361,7 @@ for i in "${!k8s_log_labels[@]}"; do
   label="${k8s_log_labels[$i]}"
   PODS=$($cli get pods -n kube-system -l $label -o jsonpath="{.items[*].metadata.name}")
   for POD in $PODS; do
-  LOG_FILE="${output_dir}/logs/kube_component/${POD}.log"
+  LOG_FILE="${output_dir}/logs/kube_components/${POD}.log"
   #echo "Fetching logs for pod: $POD"
   # Fetch logs and write to file
   $cli logs -n kube-system "$POD" --tail -1 --all-containers > "$LOG_FILE"
@@ -1427,7 +1427,7 @@ for i in "${!logs_oth_ns[@]}"; do
         if [[ "$option" == "PXB" ]]; then
         POD_YAML_FILE="${output_dir}/px_backup/${pod}.yaml"
         else
-        POD_YAML_FILE="${output_dir}/portworx/workload/${pod}.yaml"
+        POD_YAML_FILE="${output_dir}/portworx/workloads/${pod}.yaml"
         fi
         #echo "Saving logs for Pod: $pod (Namespace: $namespace)"
         $cli logs -n "$namespace" "$pod" --tail -1 --all-containers > "$LOG_FILE"
