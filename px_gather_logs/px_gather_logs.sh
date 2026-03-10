@@ -355,8 +355,7 @@ fi
 # Common directories
 common_dirs=(
   "${output_dir}/logs/previous"
-  "${output_dir}/k8s_oth"
-  "${output_dir}/k8s_bkp"
+  "${output_dir}/logs/kube_component"
   "${output_dir}/cluster"
   "${output_dir}/storage"
   "${output_dir}/px_backup"
@@ -364,7 +363,6 @@ common_dirs=(
   "${output_dir}/openshift"
   "${output_dir}/backup"
   "${output_dir}/policies"
-  "${output_dir}/logs/kube_component"
 )
 
 # Initialize array
