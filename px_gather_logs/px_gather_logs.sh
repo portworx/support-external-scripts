@@ -342,15 +342,49 @@ else
   output_dir="/tmp/${main_dir}"
 fi
 
+#if [[ "$option" == "PX" ]]; then
+#  if [[ "$PXCSIV3" == "true" ]]; then
+#     sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_px ${output_dir}/k8s_oth ${output_dir}/k8s_bkp ${output_dir}/k8s_pxb)
+#  else
+#     sub_dir=(${output_dir}/logs/previous ${output_dir}/px_out ${output_dir}/k8s_px ${output_dir}/k8s_oth ${output_dir}/migration ${output_dir}/k8s_bkp ${output_dir}/k8s_pxb ${output_dir}/storkctl_out)
+#  fi
+#else
+#  sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_pxb ${output_dir}/k8s_oth ${output_dir}/k8s_bkp ${output_dir}/pxb_db_collections)
+#fi
+
+# Common directories
+common_dirs=(
+  "${output_dir}/logs/previous"
+  "${output_dir}/k8s_oth"
+  "${output_dir}/k8s_bkp"
+  "${output_dir}/cluster"
+)
+
+# Initialize array
+sub_dir=("${common_dirs[@]}")
+
 if [[ "$option" == "PX" ]]; then
   if [[ "$PXCSIV3" == "true" ]]; then
-     sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_px ${output_dir}/k8s_oth ${output_dir}/k8s_bkp ${output_dir}/k8s_pxb)
+    sub_dir+=(
+      "${output_dir}/k8s_px"
+      "${output_dir}/k8s_pxb"
+    )
   else
-     sub_dir=(${output_dir}/logs/previous ${output_dir}/px_out ${output_dir}/k8s_px ${output_dir}/k8s_oth ${output_dir}/migration ${output_dir}/k8s_bkp ${output_dir}/k8s_pxb ${output_dir}/storkctl_out)
+    sub_dir+=(
+      "${output_dir}/px_out"
+      "${output_dir}/k8s_px"
+      "${output_dir}/migration"
+      "${output_dir}/k8s_pxb"
+      "${output_dir}/storkctl_out"
+    )
   fi
 else
-  sub_dir=(${output_dir}/logs/previous ${output_dir}/k8s_pxb ${output_dir}/k8s_oth ${output_dir}/k8s_bkp ${output_dir}/pxb_db_collections)
+  sub_dir+=(
+    "${output_dir}/k8s_pxb"
+    "${output_dir}/pxb_db_collections"
+  )
 fi
+
 
 mkdir -p "$output_dir"
 mkdir -p "${sub_dir[@]}"
@@ -484,11 +518,11 @@ if [[ "$option" == "PX" ]]; then
     "k8s_px/px_pods.txt"
     "k8s_px/px_pods.yaml"
     "k8s_px/px_pods_desc.txt"
-    "k8s_oth/k8s_nodes.txt"
-    "k8s_oth/k8s_nodes.yaml"
-    "k8s_oth/k8s_nodes_desc.txt"
+    "cluster/k8s_nodes.txt"
+    "cluster/k8s_nodes.yaml"
+    "cluster/k8s_nodes_desc.txt"
     "k8s_oth/k8s_nodes_px_labels.txt"
-    "k8s_oth/k8s_events_all.txt"
+    "cluster/k8s_events_all.txt"
     "k8s_px/px_deploy.txt"
     "k8s_px/px_deploy.yaml"
     "k8s_px/px_deploy_desc.txt"
@@ -517,10 +551,10 @@ if [[ "$option" == "PX" ]]; then
     "k8s_px/px_pdb.txt"
     "k8s_px/px_pdb.yaml"
     "k8s_oth/pods_kube_system.txt"
-    "k8s_oth/k8s_version.txt"
+    "cluster/k8s_version.txt"
     "k8s_px/px_controllerrevisions.txt"
     "k8s_px/px_controllerrevisions.yaml"
-    "k8s_oth/k8s_api_resources.txt"
+    "cluster/k8s_api_resources.txt"
     "k8s_px/autopilotrules.txt"
     "k8s_px/autopilotrules.yaml"
     "k8s_px/autopilotruleobjects.txt"
@@ -954,10 +988,10 @@ else
     "k8s_pxb/pxb_pods.txt"
     "k8s_pxb/pxb_pods.yaml"
     "k8s_pxb/pxb_pods_desc.txt"
-    "k8s_oth/k8s_nodes.txt"
-    "k8s_oth/k8s_nodes.yaml"
-    "k8s_oth/k8s_nodes_desc.txt"
-    "k8s_oth/k8s_events_all.txt"
+    "cluster/k8s_nodes.txt"
+    "cluster/k8s_nodes.yaml"
+    "cluster/k8s_nodes_desc.txt"
+    "cluster/k8s_events_all.txt"
     "k8s_pxb/pxb_deploy.txt"
     "k8s_pxb/pxb_deploy.yaml"
     "k8s_pxb/pxb_deploy_desc.txt"
@@ -1035,10 +1069,10 @@ else
     "k8s_bkp/kdmp_volumebackupdeletes.txt"
     "k8s_bkp/kdmp_volumebackupdeletes.yaml"
     "k8s_pxb/stork-controller-config.yaml"
-    "k8s_oth/k8s_version.txt"
-    "k8s_oth/k8s_api_resources.txt"
-    "k8s_oth/ns.txt"
-    "k8s_oth/ns.yaml"
+    "cluster/k8s_version.txt"
+    "cluster/k8s_api_resources.txt"
+    "cluster/ns.txt"
+    "cluster/ns.yaml"
     "k8s_pxb/pxb_secret_list.txt"
     "k8s_oth/pods_all.txt"
     "k8s_pxb/kopia_backup_jobs.txt"
@@ -1173,9 +1207,9 @@ done
 
 # Get top command output for node
 if [[ "$cli" == "oc" ]]; then
-  $cli adm top node > "$output_dir/k8s_oth/top_nodes.txt" 2>&1
+  $cli adm top node > "$output_dir/cluster/top_nodes.txt" 2>&1
 else
-  $cli top node > "$output_dir/k8s_oth/top_nodes.txt" 2>&1
+  $cli top node > "$output_dir/cluster/top_nodes.txt" 2>&1
 fi
 
 case "$OSTYPE" in
