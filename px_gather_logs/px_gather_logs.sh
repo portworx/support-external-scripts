@@ -1116,8 +1116,8 @@ common_commands_and_files=(
   "get resourcequota -A -o yaml" "policies/resourcequota.yaml"
   "get limitrange -A" "policies/limitrange.txt"
   "get limitrange -A -o yaml" "policies/limitrange.yaml"
-  "get leases -A" "k8s_oth/leases.txt"
-  "get leases -A -o yaml" "k8s_oth/leases.yaml"
+  "get leases -A" "cluster/leases.txt"
+  "get leases -A -o yaml" "cluster/leases.yaml"
 )
 
 ocp_common_commands_and_files=(
