@@ -369,19 +369,16 @@ common_dirs=(
 sub_dir=("${common_dirs[@]}")
 
 if [[ "$option" == "PX" ]]; then
-  if [[ "$PXCSIV3" == "true" ]]; then
-    sub_dir+=(
-      "${output_dir}/portworx"
+  sub_dir+=(
       "${output_dir}/portworx/workload"
       "${output_dir}/portworx/px_csi"
     )
-  else
+  
+  if [[ "$PXCSIV3" != "true" ]]; then
     sub_dir+=(
       "${output_dir}/migration"
       "${output_dir}/storkctl_out"
       "${output_dir}/portworx/pxctl_out"
-      "${output_dir}/portworx/workload"
-      "${output_dir}/portworx/px_csi"
     )
   fi
 else
