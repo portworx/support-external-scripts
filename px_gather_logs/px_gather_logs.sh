@@ -378,13 +378,12 @@ if [[ "$option" == "PX" ]]; then
       "${output_dir}/migration"
       "${output_dir}/storkctl_out"
       "${output_dir}/portworx/pxctl_out"
-      "${output_dir}/backup/kdmp"
     )
   fi
 else
   sub_dir+=(
     "${output_dir}/pxb_db_collections"
-    "${output_dir}/k8s_bkp/kdmp"
+    "${output_dir}/backup/kdmp"
   )
 fi
 
