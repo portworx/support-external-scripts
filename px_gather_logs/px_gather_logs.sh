@@ -372,12 +372,16 @@ if [[ "$option" == "PX" ]]; then
   if [[ "$PXCSIV3" == "true" ]]; then
     sub_dir+=(
       "${output_dir}/portworx"
+      "${output_dir}/portworx/workload"
+      "${output_dir}/portworx/px_csi"
     )
   else
     sub_dir+=(
       "${output_dir}/migration"
       "${output_dir}/storkctl_out"
       "${output_dir}/portworx/pxctl_out"
+      "${output_dir}/portworx/workload"
+      "${output_dir}/portworx/px_csi"
     )
   fi
 else
@@ -517,17 +521,17 @@ if [[ "$option" == "PX" ]]; then
     
   )
   output_files=(
-    "portworx/px_pods.txt"
-    "portworx/px_pods.yaml"
-    "portworx/px_pods_desc.txt"
+    "portworx/workload/px_pods.txt"
+    "portworx/workload/px_pods.yaml"
+    "portworx/workload/px_pods_desc.txt"
     "cluster/k8s_nodes.txt"
     "cluster/k8s_nodes.yaml"
     "cluster/k8s_nodes_desc.txt"
     "portworx/k8s_nodes_px_labels.txt"
     "cluster/k8s_events_all.txt"
-    "portworx/px_deploy.txt"
-    "portworx/px_deploy.yaml"
-    "portworx/px_deploy_desc.txt"
+    "portworx/workload/px_deploy.txt"
+    "portworx/workload/px_deploy.yaml"
+    "portworx/workload/px_deploy_desc.txt"
     "storage/volumeattachments.txt"
     "storage/volumeattachments.yaml"
     "storage/csidrivers.txt"
@@ -549,7 +553,7 @@ if [[ "$option" == "PX" ]]; then
     "policies/mutatingwebhookconfiguration.yaml"
     "portworx/px_svc_ep.txt"
     "portworx/px_svc_ep.yaml"
-    "portworx/px_ds.yaml"
+    "portworx/workload/px_ds.yaml"
     "portworx/px_pdb.txt"
     "portworx/px_pdb.yaml"
     "cluster/pods_kube_system.txt"
@@ -620,14 +624,14 @@ if [[ "$option" == "PX" ]]; then
     "portworx/componentk8sconfig.yaml"
     "portworx/sa.txt"
     "portworx/sa.yaml"
-    "portworx/purevolumes.txt"
-    "portworx/purevolumes.yaml"
-    "portworx/puresnapshots.txt"
-    "portworx/puresnapshots.yaml"
-    "portworx/storagenodeinitiators.txt"
-    "portworx/storagenodeinitiators.yaml"
-    "portworx/purestoragecluster.txt"
-    "portworx/purestoragecluster.yaml"
+    "portworx/px_csi/purevolumes.txt"
+    "portworx/px_csi/purevolumes.yaml"
+    "portworx/px_csi/puresnapshots.txt"
+    "portworx/px_csi/puresnapshots.yaml"
+    "portworx/px_csi/storagenodeinitiators.txt"
+    "portworx/px_csi/storagenodeinitiators.yaml"
+    "portworx/px_csi/purestoragecluster.txt"
+    "portworx/px_csi/purestoragecluster.yaml"
 
 
   )
@@ -1426,7 +1430,7 @@ for i in "${!logs_oth_ns[@]}"; do
         if [[ "$option" == "PXB" ]]; then
         POD_YAML_FILE="${output_dir}/px_backup/${pod}.yaml"
         else
-        POD_YAML_FILE="${output_dir}/portworx/${pod}.yaml"
+        POD_YAML_FILE="${output_dir}/portworx/workload/${pod}.yaml"
         fi
         #echo "Saving logs for Pod: $pod (Namespace: $namespace)"
         $cli logs -n "$namespace" "$pod" --tail -1 --all-containers > "$LOG_FILE"
