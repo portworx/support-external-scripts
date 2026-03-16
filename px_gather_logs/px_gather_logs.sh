@@ -362,7 +362,7 @@ common_dirs=(
   "${output_dir}/monitoring"
   "${output_dir}/openshift"
   "${output_dir}/backup"
-  "${output_dir}/security"
+  "${output_dir}/cluster_governance"
 )
 
 # Initialize array
@@ -546,8 +546,8 @@ if [[ "$option" == "PX" ]]; then
     "storage/pv_list.txt"
     "storage/pv_all.yaml"
     "portworx/px_storagenodes_list.txt"
-    "security/mutatingwebhookconfiguration.txt"
-    "security/mutatingwebhookconfiguration.yaml"
+    "cluster_governance/mutatingwebhookconfiguration.txt"
+    "cluster_governance/mutatingwebhookconfiguration.yaml"
     "portworx/px_svc_ep.txt"
     "portworx/px_svc_ep.yaml"
     "portworx/workloads/px_ds.yaml"
@@ -600,8 +600,8 @@ if [[ "$option" == "PX" ]]; then
     "monitoring/alertmanagerconfigs.yaml"
     "monitoring/servicemonitors.txt"
     "monitoring/servicemonitors.yaml"  
-    "security/mutatingwebhookconfiguration.txt"
-    "security/mutatingwebhookconfiguration.yaml"
+    "cluster_governance/mutatingwebhookconfiguration.txt"
+    "cluster_governance/mutatingwebhookconfiguration.yaml"
     "px_backup/kdmp-config.yaml"
     "px_backup/stork-controller-config.yaml"
     "backup/px_rules.txt"
@@ -1058,8 +1058,8 @@ else
     "monitoring/alertmanagerconfigs.yaml"
     "monitoring/servicemonitors.txt"
     "monitoring/servicemonitors.yaml"  
-    "security/mutatingwebhookconfiguration.txt"
-    "security/mutatingwebhookconfiguration.yaml"
+    "cluster_governance/mutatingwebhookconfiguration.txt"
+    "cluster_governance/mutatingwebhookconfiguration.yaml"
     "px_backup/kdmp-config.yaml"
     "backup/kdmp/kdmp_backuplocationmaintenances.txt"
     "backup/kdmp/kdmp_backuplocationmaintenances.yaml"
@@ -1111,17 +1111,17 @@ fi
 
 # Array for common commands and their output files
 common_commands_and_files=(
-  "get resourcequota -A" "security/resourcequota.txt"
-  "get resourcequota -A -o yaml" "security/resourcequota.yaml"
-  "get limitrange -A" "security/limitrange.txt"
-  "get limitrange -A -o yaml" "security/limitrange.yaml"
+  "get resourcequota -A" "cluster_governance/resourcequota.txt"
+  "get resourcequota -A -o yaml" "cluster_governance/resourcequota.yaml"
+  "get limitrange -A" "cluster_governance/limitrange.txt"
+  "get limitrange -A -o yaml" "cluster_governance/limitrange.yaml"
   "get leases -A" "cluster/leases.txt"
   "get leases -A -o yaml" "cluster/leases.yaml"
 )
 
 ocp_common_commands_and_files=(
-  "get scc" "security/ocp_scc.txt"
-  "get scc -o yaml" "security/ocp_scc.yaml"
+  "get scc" "cluster_governance/ocp_scc.txt"
+  "get scc -o yaml" "cluster_governance/ocp_scc.yaml"
   )
 
 ocp_px_commands_and_files=(  
