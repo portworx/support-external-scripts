@@ -813,10 +813,10 @@ if [[ "$option" == "PX" ]]; then
     "virtualization/virtualmachines/virtualmachineinstances.yaml"
     "virtualization/platform/hyperconvergeds.txt"
     "virtualization/platform/hyperconvergeds.yaml"
-    "virtualization/storage/cdiconfigs.txt"
-    "virtualization/storage/cdiconfigs.yaml"
-    "virtualization/storage/cdis.txt"
-    "virtualization/storage/cdis.yaml"
+    "virtualization/cdi/cdiconfigs.txt"
+    "virtualization/cdi/cdiconfigs.yaml"
+    "virtualization/cdi/cdis.txt"
+    "virtualization/cdi/cdis.yaml"
     "virtualization/storage/datavolumes.txt"
     "virtualization/storage/datavolumes.yaml"
     "virtualization/storage/datavolumes_desc.txt"
@@ -1404,7 +1404,7 @@ print_progress 5
 
 if $cli get crd | grep -q "virtualmachines.kubevirt.io"; then
   #echo "KubeVirt is likely enabled."
-  mkdir -p $output_dir/virtualization/platform $output_dir/virtualization/virtualmachines $output_dir/virtualization/storage $output_dir/virtualization/migration $output_dir/virtualization/restore $output_dir/virtualization/forklift
+  mkdir -p $output_dir/virtualization/platform $output_dir/virtualization/virtualmachines $output_dir/virtualization/storage $output_dir/virtualization/migration $output_dir/virtualization/restore $output_dir/virtualization/forklift $output_dir/virtualization/cdi
   for i in "${!kubevirt_commands[@]}"; do
     cmd="${kubevirt_commands[$i]}"
     output_file="$output_dir/${kubevirt_output[$i]}"
