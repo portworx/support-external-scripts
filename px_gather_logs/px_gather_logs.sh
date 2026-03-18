@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.3.4"
+SCRIPT_VERSION="26.3.5"
 
 
 # Function to display usage
@@ -486,8 +486,6 @@ if [[ "$option" == "PX" ]]; then
     "get alertmanagerconfigs -A -o yaml" 
     "get servicemonitors -A"
     "get servicemonitors -A -o yaml"
-    "get mutatingwebhookconfiguration"
-    "get mutatingwebhookconfiguration -o yaml"
     "get cm kdmp-config -n kube-system -o yaml"
     "get cm stork-controller-config -n kube-system -o yaml"
     "get rules -A"
@@ -537,7 +535,7 @@ if [[ "$option" == "PX" ]]; then
     "portworx/px_cm.txt"
     "portworx/px-versions_cm.yaml"
     "portworx/px_ns_dec.txt"
-    "portworx/px_ns_dec.yaml"
+    "portworx/px_ns.yaml"
     "portworx/px_secret_list.txt"
     "storage/sc.txt"
     "storage/sc.yaml"
@@ -600,8 +598,6 @@ if [[ "$option" == "PX" ]]; then
     "monitoring/alertmanagerconfigs.yaml"
     "monitoring/servicemonitors.txt"
     "monitoring/servicemonitors.yaml"  
-    "cluster_governance/mutatingwebhookconfiguration.txt"
-    "cluster_governance/mutatingwebhookconfiguration.yaml"
     "px_backup/kdmp-config.yaml"
     "px_backup/stork-controller-config.yaml"
     "backup/px_rules.txt"
