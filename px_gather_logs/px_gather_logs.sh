@@ -535,7 +535,7 @@ if [[ "$option" == "PX" ]]; then
     "portworx/px_cm.txt"
     "portworx/px-versions_cm.yaml"
     "portworx/px_ns_dec.txt"
-    "portworx/px_ns_dec.yaml"
+    "portworx/px_ns.yaml"
     "portworx/px_secret_list.txt"
     "storage/sc.txt"
     "storage/sc.yaml"
