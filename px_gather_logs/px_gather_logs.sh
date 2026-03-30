@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.3.5"
+SCRIPT_VERSION="26.3.6"
 
 
 # Function to display usage
@@ -1113,6 +1113,7 @@ common_commands_and_files=(
   "get limitrange -A -o yaml" "cluster_governance/limitrange.yaml"
   "get leases -A" "cluster/leases.txt"
   "get leases -A -o yaml" "cluster/leases.yaml"
+  "get apiservices" "cluster/apiservices.txt"
 )
 
 ocp_common_commands_and_files=(
