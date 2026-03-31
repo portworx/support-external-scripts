@@ -709,6 +709,7 @@ if [[ "$option" == "PX" ]]; then
     "app.kubernetes.io/component=telemetry-registration"
     "role=realtime-metrics-collector"
     "app.kubernetes.io/instance=cert-manager"
+    "name=px-pre-flight"
     
   )
 
