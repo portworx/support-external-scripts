@@ -1468,11 +1468,47 @@ done
 
 #Execute masked data extractions
 
+nslookup_purity_ips() {
+    local target_file=$1
+    local output_file="$output_dir/purity_backend_dns_names.txt"
+    # Initialize/Overwrite file with the header (Silent in terminal)
+    {
+        echo "Backend - MgmtEndPoint - DNS Name"
+        echo "--------------------------------------------------"
+    } > "$output_file"
+    
+    if [[ -z "$target_file" || ! -f "$target_file" ]]; then
+        return 0
+    fi
+    
+    local keys=$(jq -r 'keys[]' "$target_file" 2>/dev/null)
+    
+    if [[ -n "$keys" ]]; then
+        for key in $keys; do
+            if [[ "$key" == "FlashArrays" || "$key" == "FlashBlades" ]]; then
+                local ips=$(jq -r ".$key[].MgmtEndPoint" "$target_file" 2>/dev/null)
+
+                if [[ -n "$ips" && "$ips" != "null" ]]; then
+                    for ip in $ips; do
+                        # Execute lookup and append result directly to output_file
+                        hostname=$(oc -n portworx exec svc/stork-service -- python3 -c "import socket; print(socket.gethostbyaddr('$ip')[0])" 2>/dev/null)
+
+                        echo "$key - $ip - ${hostname:-'Unknown'}" >> "$output_file"
+                    done
+                fi
+            fi
+        done
+    fi
+}
+
 extract_masked_data() {
 for i in "${!data_masking_commands[@]}"; do
   cmd="${data_masking_commands[$i]}"
   output_file="$output_dir/${data_masking_output[$i]}"
   eval "$cmd" > "$output_file" 2>&1
+  if [[ ${data_masking_output[$i]} == "portworx/px-pure-secret_masked.yaml" ]]; then
+    nslookup_purity_ips "$output_file"
+  fi
 done
 }
 
