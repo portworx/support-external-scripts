@@ -1491,9 +1491,9 @@ nslookup_purity_ips() {
                 if [[ -n "$ips" && "$ips" != "null" ]]; then
                     for ip in $ips; do
                         # Execute lookup and append result directly to output_file
-                        hostname=$(oc -n portworx exec svc/stork-service -- python3 -c "import socket; print(socket.gethostbyaddr('$ip')[0])" 2>/dev/null)
+                        hostname=$( $cli -n "$namespace" exec svc/stork-service -- python3 -c "import socket; print(socket.gethostbyaddr('$ip')[0])" 2>/dev/null)
 
-                        echo "$key - $ip - ${hostname:-'Unknown'}" >> "$output_file"
+                        echo "$key - $ip - ${hostname:-'Could not be retrived'}" >> "$output_file"
                     done
                 fi
             fi
