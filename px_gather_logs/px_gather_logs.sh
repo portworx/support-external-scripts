@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.3.5"
+SCRIPT_VERSION="26.4.1"
 
 
 # Function to display usage
@@ -1470,7 +1470,7 @@ done
 
 nslookup_purity_ips() {
     local target_file=$1
-    local output_file="$output_dir/purity_backend_dns_names.txt"
+    local output_file="$output_dir/portworx/purity_backend_dns_names.txt"
     # Initialize/Overwrite file with the header (Silent in terminal)
     {
         echo "Backend - MgmtEndPoint - DNS Name"
