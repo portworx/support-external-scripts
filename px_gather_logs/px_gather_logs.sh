@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.3.5"
+SCRIPT_VERSION="26.3.6"
 
 
 # Function to display usage
@@ -709,6 +709,7 @@ if [[ "$option" == "PX" ]]; then
     "app.kubernetes.io/component=telemetry-registration"
     "role=realtime-metrics-collector"
     "app.kubernetes.io/instance=cert-manager"
+    "name=px-pre-flight"
     
   )
 
@@ -1113,6 +1114,7 @@ common_commands_and_files=(
   "get limitrange -A -o yaml" "cluster_governance/limitrange.yaml"
   "get leases -A" "cluster/leases.txt"
   "get leases -A -o yaml" "cluster/leases.yaml"
+  "get apiservices" "cluster/apiservices.txt"
 )
 
 ocp_common_commands_and_files=(
@@ -1252,7 +1254,7 @@ pxc_max_pods_logs="${max_pods_logs:-200}"
 pxe_max_pods_logs="${max_pods_logs:-5}"
 
 # Define the labels you want to apply the log limit to
-px_op_ds_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portworx" "app.kubernetes.io/component=node-plugin" "app.kubernetes.io/component=telemetry-plugin")
+px_op_ds_labels=("name=portworx-api" "name=px-telemetry-phonehome" "name=portworx" "app.kubernetes.io/component=node-plugin" "app.kubernetes.io/component=telemetry-plugin" "name=px-pre-flight")
 pxc_op_ds_limit_labels=("app.kubernetes.io/component=node-plugin")
 pxe_op_ds_limit_labels=("name=portworx")
 
