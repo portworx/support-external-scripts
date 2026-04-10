@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.4.1"
+SCRIPT_VERSION="26.4.2"
 
 
 # Function to display usage
@@ -1490,10 +1490,16 @@ nslookup_purity_ips() {
             if [[ "$key" == "FlashArrays" || "$key" == "FlashBlades" ]]; then
                 local ips=$(jq -r ".$key[].MgmtEndPoint" "$target_file" 2>/dev/null)
 
+                if [[ "$PXCSIV3" == "true" ]]; then
+                  exec_rs="ds/px-pure-csi-node -c node-plugin"
+                else
+                  exec_rs="svc/stork-service"
+                fi
+
                 if [[ -n "$ips" && "$ips" != "null" ]]; then
                     for ip in $ips; do
                         # Execute lookup and append result directly to output_file
-                        hostname=$( $cli -n "$namespace" exec svc/stork-service -- python3 -c "import socket; print(socket.gethostbyaddr('$ip')[0])" 2>/dev/null)
+                        hostname=$( $cli -n "$namespace" exec $exec_rs -- python3 -c "import socket; print(socket.gethostbyaddr('$ip')[0])" 2>/dev/null)
 
                         echo "$key - $ip - ${hostname:-'Could not be retrived'}" >> "$output_file"
                     done
