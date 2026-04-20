@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.4.2"
+SCRIPT_VERSION="26.4.3"
 
 
 # Function to display usage
@@ -1115,6 +1115,8 @@ common_commands_and_files=(
   "get leases -A" "cluster/leases.txt"
   "get leases -A -o yaml" "cluster/leases.yaml"
   "get apiservices" "cluster/apiservices.txt"
+  "get networkpolicies -A -o wide" "cluster/networkpolicies.txt"
+  "get networkpolicies -A -o yaml" "cluster/networkpolicies.yaml"
 )
 
 ocp_common_commands_and_files=(
