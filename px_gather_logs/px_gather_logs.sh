@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.4.2"
+SCRIPT_VERSION="26.4.3"
 
 
 # Function to display usage
@@ -743,6 +743,8 @@ if [[ "$option" == "PX" ]]; then
     "get clusterdomainsstatuses -o yaml"
     "get resourcetransformations -A"
     "get resourcetransformations -A -o yaml"
+    "get actions -A"
+    "get actions -A -o yaml"
   )
    migration_output=(
     "migration/clusterpair.txt"
@@ -758,6 +760,8 @@ if [[ "$option" == "PX" ]]; then
     "migration/cds.yaml"
     "migration/resourcetransformations.txt"
     "migration/resourcetransformations.yaml"
+    "migration/actions.txt"
+    "migration/actions.yaml"
   )
 
    kubevirt_commands=(
