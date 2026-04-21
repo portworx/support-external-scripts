@@ -1119,6 +1119,8 @@ common_commands_and_files=(
   "get leases -A" "cluster/leases.txt"
   "get leases -A -o yaml" "cluster/leases.yaml"
   "get apiservices" "cluster/apiservices.txt"
+  "get networkpolicies -A -o wide" "cluster_governance/networkpolicies.txt"
+  "get networkpolicies -A -o yaml" "cluster_governance/networkpolicies.yaml"
 )
 
 ocp_common_commands_and_files=(
