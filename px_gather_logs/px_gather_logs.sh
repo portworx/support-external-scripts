@@ -1121,11 +1121,11 @@ common_commands_and_files=(
   "get apiservices" "cluster/apiservices.txt"
   "get networkpolicies -A -o wide" "cluster_governance/networkpolicies.txt"
   "get networkpolicies -A -o yaml" "cluster_governance/networkpolicies.yaml"
-  "get backupjobs -A" "backup/backupjobs_list.txt"
-  "get backupjobs -A -o yaml" "backup/backupjobs.yaml"
-  "get backupstoragelocations -A" "backup/backupstoragelocations_list.txt"
-  "get deletebackupjobs -A" "backup/deletebackupjobs_list.txt"
-  "get deletebackupjobs -A -o yaml" "backup/deletebackupjobs.yaml"
+  "get backupjobs -A" "backup/ppdm_backupjobs_list.txt"
+  "get backupjobs -A -o yaml" "backup/ppdm_backupjobs.yaml"
+  "get backupstoragelocations -A" "backup/ppdm_backupstoragelocations_list.txt"
+  "get deletebackupjobs -A" "backup/ppdm_deletebackupjobs_list.txt"
+  "get deletebackupjobs -A -o yaml" "backup/ppdm_deletebackupjobs.yaml"
 )
 
 ocp_common_commands_and_files=(
