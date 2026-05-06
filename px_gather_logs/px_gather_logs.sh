@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.4.3"
+SCRIPT_VERSION="26.4.4"
 
 
 # Function to display usage
@@ -1126,6 +1126,7 @@ common_commands_and_files=(
 ocp_common_commands_and_files=(
   "get scc" "cluster_governance/ocp_scc.txt"
   "get scc -o yaml" "cluster_governance/ocp_scc.yaml"
+  "describe scc" "cluster_governance/ocp_scc_describe.txt"
   )
 
 ocp_px_commands_and_files=(  
@@ -1554,6 +1555,45 @@ extract_ocp_specific_commands_op() {
       $cli $cmd > "$output_file" 2>&1
     done
   fi
+
+  extract_ocp_scc_details
+}
+
+# Collect additional SCC details for OpenShift troubleshooting
+extract_ocp_scc_details() {
+  local pod_scc_ns="$output_dir/cluster_governance/ocp_pod_scc_${namespace}.txt"
+  local pod_scc_ks="$output_dir/cluster_governance/ocp_pod_scc_kube_system.txt"
+  local sa_scc_map="$output_dir/cluster_governance/ocp_sa_scc_map_${namespace}.txt"
+
+  # Pod -> SCC annotation mapping for the install namespace
+  {
+    printf "%-60s %-30s %s\n" "POD" "SERVICEACCOUNT" "SCC"
+    $cli get pods -n "$namespace" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.serviceAccountName}{"\t"}{.metadata.annotations.openshift\.io/scc}{"\n"}{end}' 2>/dev/null \
+      | awk -F'\t' 'NF{ printf "%-60s %-30s %s\n", $1, ($2==""?"-":$2), ($3==""?"-":$3) }'
+  } > "$pod_scc_ns" 2>&1
+
+  # Pod -> SCC annotation mapping for kube-system (Stork, Autopilot, etc.)
+  {
+    printf "%-60s %-30s %s\n" "POD" "SERVICEACCOUNT" "SCC"
+    $cli get pods -n kube-system -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.serviceAccountName}{"\t"}{.metadata.annotations.openshift\.io/scc}{"\n"}{end}' 2>/dev/null \
+      | awk -F'\t' 'NF{ printf "%-60s %-30s %s\n", $1, ($2==""?"-":$2), ($3==""?"-":$3) }'
+  } > "$pod_scc_ks" 2>&1
+
+  # SCC -> service accounts from the install namespace that are listed under .users
+  {
+    printf "%-40s %s\n" "SCC" "SERVICEACCOUNTS (from namespace ${namespace})"
+    local sccs
+    sccs=$($cli get scc -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+    for scc in $sccs; do
+      local users
+      users=$($cli get scc "$scc" -o jsonpath='{.users[*]}' 2>/dev/null \
+        | tr ' ' '\n' \
+        | grep "system:serviceaccount:${namespace}:" \
+        | sed "s|system:serviceaccount:${namespace}:||g" \
+        | paste -sd "," -)
+      printf "%-40s %s\n" "$scc" "${users:--}"
+    done
+  } > "$sa_scc_map" 2>&1
 }
 
 # Extract storkctl get output of stork managed objects to have better list representation than kubectl get
