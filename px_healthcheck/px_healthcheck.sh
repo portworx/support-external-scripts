@@ -251,6 +251,81 @@ confirm_namespace() {
     done
 }
 
+check_px_stc_version() {
+    # Build the command with optional kubeconfig
+    local cmd="$CLI_TOOL"
+    if [[ -n "$KUBECONFIG_PATH" ]]; then
+        cmd="$cmd --kubeconfig=$KUBECONFIG_PATH"
+    fi
+
+    # Get the Portworx version from StorageCluster
+    # The version is typically in spec.image or status.version
+    local stc_version
+    stc_version=$($cmd -n "$PX_NAMESPACE" get stc -o jsonpath='{.items[*].status.version}' 2>/dev/null)
+
+    # If status.version is not available, try to get from the image tag
+    if [[ -z "$stc_version" ]]; then
+        stc_version=$($cmd -n "$PX_NAMESPACE" get stc -o jsonpath='{.items[*].spec.image}' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    fi
+
+    # If still not available, try to get from a Portworx pod's container image
+    if [[ -z "$stc_version" ]]; then
+        stc_version=$($cmd -n "$PX_NAMESPACE" get pods -l name=portworx -o jsonpath='{.items[0].spec.containers[?(@.name=="portworx")].image}' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    fi
+
+    if [[ -z "$stc_version" ]]; then
+        print_warning "Could not determine Portworx version from StorageCluster or pods."
+        print_warning "Proceeding with health check, but please verify the version manually."
+        return
+    fi
+
+    #print_info "Detected Portworx version: $stc_version"
+
+    # Extract major version
+    local major_version
+    major_version=$(echo "$stc_version" | cut -d. -f1)
+
+    if [[ -z "$major_version" ]] || ! [[ "$major_version" =~ ^[0-9]+$ ]]; then
+        echo ""
+        echo "========================================="
+        echo "  Checking Portworx Version"
+        echo "========================================="
+        echo ""
+        print_warning "Could not parse major version from: $stc_version"
+        print_warning "Proceeding with health check, but please verify the version manually."
+        return
+    fi
+
+    # Check if version is below 3.0.0
+    if [[ "$major_version" -lt 3 ]]; then
+        echo ""
+        echo "========================================="
+        echo "  Checking Portworx Version"
+        echo "========================================="
+        echo ""
+        echo ""
+        print_error "============================================================"
+        print_error "  PORTWORX VERSION $stc_version IS EOL"
+        print_error "    https://docs.portworx.com/portworx-enterprise/support/support-policy"
+        print_error "============================================================"
+        echo ""
+        print_error "Portworx versions prior to 3.0.0 are no longer supported."
+        print_error "This health check script is designed for Portworx 3.0.0 and above."
+        echo ""
+        print_warning "RECOMMENDED ACTION:"
+        print_warning "  1. Please engage Portworx Support for upgrade assistance."
+        print_warning "  2. Run the health check manually with Portworx Support guidance."
+        print_warning "  3. Plan an upgrade to a supported Portworx version."
+        echo ""
+        print_info "For support, please contact: https://support.purestorage.com"
+        echo ""
+        print_error "Exiting health check script."
+        exit 1
+    fi
+
+    #print_info "Portworx version $stc_version is supported. Continuing with health check."
+}
+
 # Function to get and select Portworx pod, providing option to customer to select a PX pod
 select_portworx_pod() {
     echo ""
@@ -1658,6 +1733,8 @@ main() {
     select_cli_tool
     select_kubeconfig
     confirm_namespace
+    #Check portworx stc version. stop script if version is below 3.0.0
+    check_px_stc_version
     select_portworx_pod
     detect_px_security #Check if a px-security enabled on the cluster.
     customer_recommendations
