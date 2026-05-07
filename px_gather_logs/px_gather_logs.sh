@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.4.4"
+SCRIPT_VERSION="26.5.0"
 
 
 # Function to display usage
@@ -58,6 +58,16 @@ print_progress() {
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting $current_stage/$total_stages..." | tee -a "$summary_file"
     fi
 }
+# Helper: returns 0 (true) if the pod is in ContainerCreating state
+# Usage: is_container_creating <namespace> <pod_name>
+is_container_creating() {
+    local ns=$1
+    local pod=$2
+    local pod_status
+    pod_status=$($cli get pod -n "$ns" "$pod" --no-headers 2>/dev/null | awk '{print $3}')
+    [[ "$pod_status" == "ContainerCreating" ]]
+}
+
 
 # Parse command-line arguments
 while getopts "n:c:o:u:p:d:f:l:" opt; do
@@ -1304,6 +1314,9 @@ for i in "${!log_labels[@]}"; do
 
     # Separate pods by container readiness
     for POD in "${PODS[@]}"; do
+      if is_container_creating "$namespace" "$POD"; then
+        continue
+      fi
       ready_statuses=$($cli get pod -n "$namespace" "$POD" -o custom-columns="READY:.status.containerStatuses[*].ready" --no-headers)
       if echo "$ready_statuses" | grep -q "false"; then
         not_ready_pods+=("$POD")
@@ -1356,6 +1369,9 @@ for i in "${!log_labels[@]}"; do
   else
     # No limit: dump logs for all matching pods
     for POD in "${PODS[@]}"; do
+      if is_container_creating "$namespace" "$POD"; then
+        continue
+      fi
       LOG_FILE="${output_dir}/logs/${POD}.log"
       $cli logs -n "$namespace" "$POD" --tail -1 --all-containers > "$LOG_FILE"
     done
@@ -1371,6 +1387,9 @@ for i in "${!k8s_log_labels[@]}"; do
   label="${k8s_log_labels[$i]}"
   PODS=$($cli get pods -n kube-system -l $label -o jsonpath="{.items[*].metadata.name}")
   for POD in $PODS; do
+  if is_container_creating "kube-system" "$POD"; then
+    continue
+  fi
   LOG_FILE="${output_dir}/logs/kube_components/${POD}.log"
   #echo "Fetching logs for pod: $POD"
   # Fetch logs and write to file
@@ -1383,6 +1402,10 @@ done
 if $cli api-versions | grep -q 'openshift'; then
   PODS=$($cli get pods -n openshift-kube-apiserver -l apiserver=true -o jsonpath="{.items[*].metadata.name}")
   for POD in $PODS; do
+  if is_container_creating "openshift-kube-apiserver" "$POD"; then
+    continue
+  fi
+  
   LOG_FILE="${output_dir}/logs/${POD}.log"
   $cli logs -n openshift-kube-apiserver "$POD" --tail -1 --all-containers > "$LOG_FILE"
   done
@@ -1391,12 +1414,18 @@ if $cli api-versions | grep -q 'openshift'; then
     {
     PODS=$($cli get pods -n openshift-console-operator -l name=console-operator -o jsonpath="{.items[*].metadata.name}")
     for POD in $PODS; do
+    if is_container_creating "openshift-console-operator" "$POD"; then
+      continue
+    fi
     LOG_FILE="${output_dir}/logs/${POD}.log"
     $cli logs -n openshift-console-operator "$POD" --tail -1 --all-containers > "$LOG_FILE"
     done
 
     PODS=$($cli get pods -n openshift-console -l component=ui -o jsonpath="{.items[*].metadata.name}")
     for POD in $PODS; do
+    if is_container_creating "openshift-console" "$POD"; then
+      continue
+    fi
     LOG_FILE="${output_dir}/logs/${POD}.log"
     $cli logs -n openshift-console "$POD" --tail -1 --all-containers > "$LOG_FILE"
     done
@@ -1432,6 +1461,9 @@ for i in "${!logs_oth_ns[@]}"; do
   $cli get pods -A -l $label -o jsonpath="{range .items[*]}{.metadata.namespace}{' '}{.metadata.name}{' '}{.status.containerStatuses[*].restartCount}{'\n'}{end}"|
   while read -r namespace pod restartcount; do  
   if [[ -n "$namespace" && -n "$pod" ]]; then
+        if is_container_creating "$namespace" "$pod"; then
+          continue
+        fi
         LOG_FILE="${output_dir}/logs/${pod}.log"
         LOG_FILE_PREV="${output_dir}/logs/previous/${pod}_prev.log"
         if [[ "$option" == "PXB" ]]; then
