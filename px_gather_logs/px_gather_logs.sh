@@ -1400,12 +1400,13 @@ done
 
 #execute only if is OpenShift cluster to get kube-api server logs
 if $cli api-versions | grep -q 'openshift'; then
+  mkdir -p ${output_dir}/logs/ocp/
   OCP_KUBEAPI_PODS=$($cli get pods -n openshift-kube-apiserver -l apiserver=true -o jsonpath="{.items[*].metadata.name}")
   for OCP_KUBEAPI_PODS in $OCP_KUBEAPI_PODS; do
   if is_container_creating "openshift-kube-apiserver" "$POD"; then
     continue
   fi
-  LOG_FILE="${output_dir}/logs/${OCP_KUBEAPI_PODS}.log"
+  LOG_FILE="${output_dir}/logs/ocp/${OCP_KUBEAPI_PODS}.log"
   $cli logs -n openshift-kube-apiserver "$OCP_KUBEAPI_PODS" --tail -1 --all-containers > "$LOG_FILE"
   done
 
@@ -1414,7 +1415,7 @@ if $cli api-versions | grep -q 'openshift'; then
     continue
   fi
   for OCP_ETCD_PODS in $OCP_ETCD_PODS; do
-  LOG_FILE="${output_dir}/logs/${OCP_ETCD_PODS}.log"
+  LOG_FILE="${output_dir}/logs/ocp/${OCP_ETCD_PODS}.log"
   $cli logs -n openshift-etcd "$OCP_ETCD_PODS" --tail -1 --all-containers > "$LOG_FILE"
   done
 
