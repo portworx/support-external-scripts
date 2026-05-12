@@ -1795,10 +1795,18 @@ generate_cluster_overview() {
     fi
   fi
 
-  # Store Backend Version
-  local store_version="StoreV1"
-  if [[ -f "$stc" ]] && grep -qiE "storagev2|storev2|px-storev2" "$stc"; then
-    store_version="StoreV2"
+  # Store Backend Version (StoreV2 is opted-in via -T px-storev2 in
+  # the portworx.io/misc-args annotation on the StorageCluster)
+  local store_version="StoreV1" misc_args=""
+  if [[ -f "$stc" ]]; then
+    misc_args=$(awk '
+      /^    annotations:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      portworx\.io\/misc-args:/ {sub(/.*misc-args:[[:space:]]*/,""); gsub(/^"|"$/,""); print; exit}
+    ' "$stc")
+    if [[ "$misc_args" == *px-storev2* ]]; then
+      store_version="StoreV2"
+    fi
   fi
 
   {
