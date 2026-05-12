@@ -1716,8 +1716,8 @@ generate_cluster_overview() {
     autopilot_version=$(awk '/image:[[:space:]]+.*\/autopilot:/ {sub(/.*\/autopilot:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$deploy_file")
   fi
 
-  # StorageCluster Status (phase, runtime state, latest condition)
-  local stc_phase="" stc_runtime="" stc_last_msg=""
+  # StorageCluster Status (phase, runtime state, latest condition + time)
+  local stc_phase="" stc_runtime="" stc_last_msg="" stc_last_time=""
   if [[ -f "$stc" ]]; then
     stc_phase=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"phase: ")==1 {v=substr(l,8); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
     stc_runtime=$(awk '
@@ -1731,6 +1731,11 @@ generate_cluster_overview() {
       /^    conditions:/ {flag=1; next}
       flag && /^    [a-zA-Z]/ {flag=0; exit}
       flag && /^      message:/ {sub(/.*message: */,""); gsub(/^"|"$/,""); print; exit}
+    ' "$stc")
+    stc_last_time=$(awk '
+      /^    conditions:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^    - lastTransitionTime:/ {sub(/.*lastTransitionTime:[[:space:]]*/,""); gsub(/^"|"$/,""); print; exit}
     ' "$stc")
   fi
 
@@ -1809,6 +1814,78 @@ generate_cluster_overview() {
     fi
   fi
 
+  # KVDB TLS
+  local kvdb_tls="$NA" _raw=""
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    kvdb:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      enableTLS:/ {sub(/.*enableTLS:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  kvdb_tls="Enabled"  ;;
+      false) kvdb_tls="Disabled" ;;
+    esac
+  fi
+
+  # PX Security
+  local px_security="Disabled"
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    security:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      enabled:/ {sub(/.*enabled:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  px_security="Enabled"  ;;
+      false) px_security="Disabled" ;;
+    esac
+  fi
+
+  # Autopilot enabled flag
+  local autopilot_enabled="$NA"
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    autopilot:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      enabled:/ {sub(/.*enabled:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  autopilot_enabled="Enabled"  ;;
+      false) autopilot_enabled="Disabled" ;;
+    esac
+  fi
+
+  # Stork webhook-controller arg
+  local stork_webhook="$NA"
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    stork:/ {sf=1; next}
+      sf && /^    [a-zA-Z]/ {sf=0; exit}
+      sf && /^      args:/ {af=1; next}
+      sf && af && /^      [a-zA-Z]/ {af=0}
+      sf && af && /^        webhook-controller:/ {sub(/.*webhook-controller:[[:space:]]*/,""); gsub(/^"|"$/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  stork_webhook="Enabled"  ;;
+      false) stork_webhook="Disabled" ;;
+    esac
+  fi
+
+  # Custom Image Registry (indicates internal/airgapped-style registry)
+  local custom_registry="$NA"
+  [[ -f "$stc" ]] && custom_registry=$(awk '
+    /^    customImageRegistry:/ {sub(/.*customImageRegistry:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+  ' "$stc")
+  [[ -z "$custom_registry" ]] && custom_registry="$NA"
+
+  # Airgapped installation (px-versions ConfigMap listed in portworx/px_cm.txt)
+  local airgapped="No"
+  local px_cm_file="$output_dir/portworx/px_cm.txt"
+  if [[ -f "$px_cm_file" ]] && grep -qE "^px-versions[[:space:]]" "$px_cm_file"; then
+    airgapped="Yes (px-versions CM present)"
+  fi
+
   {
     echo "================================================================"
     echo "                 Portworx Cluster Overview"
@@ -1820,6 +1897,9 @@ generate_cluster_overview() {
     echo "---- Cluster Identity ----"
     printf "Cluster ID:          %s\n" "${cluster_id:-$NA}"
     printf "Cluster UUID:        %s\n" "${cluster_uuid:-$NA}"
+    if [[ "$custom_registry" != "$NA" ]]; then
+      printf "Image Registry:      Internal (%s)\n" "$custom_registry"
+    fi
     echo
     echo "---- Versions ----"
     printf "PX Version:          %s\n" "${px_version:-$NA}"
@@ -1832,7 +1912,11 @@ generate_cluster_overview() {
     echo "---- StorageCluster Status ----"
     printf "Phase:               %s\n" "${stc_phase:-$NA}"
     printf "Runtime State:       %s\n" "${stc_runtime:-$NA}"
-    printf "Last Condition:      %s\n" "${stc_last_msg:-$NA}"
+    if [[ -n "$stc_last_msg" && -n "$stc_last_time" ]]; then
+      printf "Last Condition:      %s (%s)\n" "$stc_last_msg" "$stc_last_time"
+    else
+      printf "Last Condition:      %s\n" "${stc_last_msg:-$NA}"
+    fi
     echo
     echo "---- Nodes ----"
     printf "Total k8s Nodes:     %s\n" "$k8s_nodes_total"
@@ -1848,6 +1932,11 @@ generate_cluster_overview() {
     echo
     echo "---- Features ----"
     printf "Telemetry:           %s\n" "$telemetry"
+    printf "KVDB TLS:            %s\n" "$kvdb_tls"
+    printf "PX Security:         %s\n" "$px_security"
+    printf "Autopilot:           %s\n" "$autopilot_enabled"
+    printf "Stork Webhook:       %s\n" "$stork_webhook"
+    printf "Airgapped:           %s\n" "$airgapped"
   } > "$overview_file"
 }
 
