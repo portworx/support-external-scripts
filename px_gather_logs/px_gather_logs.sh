@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.5.1"
+SCRIPT_VERSION="26.5.2"
 
 
 # Function to display usage
@@ -50,7 +50,7 @@ print_info() {
 
 print_progress() {
     local current_stage=$1
-    local total_stages="11"
+    local total_stages="12"
     local action=$2
     if [[ "$action" == "skip" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
@@ -1656,6 +1656,290 @@ extract_storkctl_op() {
     done
 }
 
+# Generate Cluster_Overview.txt summarising the PX cluster by parsing files
+# already collected in the bundle. PX option only, non PXCSIv3 path.
+generate_cluster_overview() {
+  local stc="$output_dir/portworx/px_stc.yaml"
+  local pxctl_status="$output_dir/portworx/pxctl_out/pxctl_status.txt"
+  local k8s_version_file="$output_dir/cluster/k8s_version.txt"
+  local k8s_nodes_file="$output_dir/cluster/k8s_nodes.txt"
+  local deploy_file="$output_dir/portworx/workloads/px_deploy.yaml"
+  local overview_file="$output_dir/Cluster_Overview.txt"
+  local NA="N/A"
+
+  # Cluster Identity
+  local cluster_id="" cluster_uuid=""
+  if [[ -f "$pxctl_status" ]]; then
+    cluster_id=$(awk -F: '/Cluster ID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+    cluster_uuid=$(awk -F: '/Cluster UUID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+  fi
+  if [[ -z "$cluster_uuid" && -f "$stc" ]]; then
+    cluster_uuid=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"clusterUid: ")==1 {v=substr(l,13); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
+  fi
+
+  # PX Version
+  local px_version=""
+  [[ -f "$stc" ]] && px_version=$(awk '/^    version: / {sub(/.*version: /,""); print; exit}' "$stc")
+
+  # Operator Version
+  local operator_version=""
+  if [[ -f "$stc" ]]; then
+    operator_version=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"operatorVersion: ")==1 {v=substr(l,18); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
+  fi
+  if [[ -z "$operator_version" ]]; then
+    local f
+    for f in "$output_dir"/portworx/workloads/portworx-operator-*.yaml; do
+      [[ -f "$f" ]] || continue
+      operator_version=$(awk '/image: .*px-operator:/ {sub(/.*px-operator:/,""); print; exit}' "$f")
+      [[ -n "$operator_version" ]] && break
+    done
+  fi
+
+  # Stork Version (from stork deployment image)
+  local stork_version=""
+  if [[ -f "$deploy_file" ]]; then
+    stork_version=$(awk '/image:[[:space:]]+.*\/stork:/ {sub(/.*\/stork:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$deploy_file")
+  fi
+  if [[ -z "$stork_version" ]]; then
+    local sf
+    for sf in "$output_dir"/portworx/workloads/stork-[0-9a-f]*.yaml \
+              "$output_dir"/portworx/workloads/stork-[!s]*.yaml; do
+      [[ -f "$sf" ]] || continue
+      stork_version=$(awk '/image:[[:space:]]+.*\/stork:/ {sub(/.*\/stork:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$sf")
+      [[ -n "$stork_version" ]] && break
+    done
+  fi
+
+  # Autopilot Version (from autopilot deployment image)
+  local autopilot_version=""
+  if [[ -f "$deploy_file" ]]; then
+    autopilot_version=$(awk '/image:[[:space:]]+.*\/autopilot:/ {sub(/.*\/autopilot:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$deploy_file")
+  fi
+
+  # StorageCluster Status (phase, runtime state, latest condition + time)
+  local stc_phase="" stc_runtime="" stc_last_msg="" stc_last_time=""
+  if [[ -f "$stc" ]]; then
+    stc_phase=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"phase: ")==1 {v=substr(l,8); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
+    stc_runtime=$(awk '
+      /^    conditions:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^    - / {status=""; next}
+      flag && /^      status:/ {sub(/.*status: */,""); sub(/[[:space:]]+$/,""); status=$0; next}
+      flag && /^      type:[[:space:]]+RuntimeState/ {print status; exit}
+    ' "$stc")
+    stc_last_msg=$(awk '
+      /^    conditions:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      message:/ {sub(/.*message: */,""); gsub(/^"|"$/,""); print; exit}
+    ' "$stc")
+    stc_last_time=$(awk '
+      /^    conditions:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^    - lastTransitionTime:/ {sub(/.*lastTransitionTime:[[:space:]]*/,""); gsub(/^"|"$/,""); print; exit}
+    ' "$stc")
+  fi
+
+  # K8s Version + Distro
+  local k8s_version="" k8s_distro="Vanilla"
+  [[ -f "$k8s_version_file" ]] && k8s_version=$(awk -F': ' '/Server Version:/ {print $2; exit}' "$k8s_version_file")
+  case "$k8s_version" in
+    *+rke2*) k8s_distro="RKE2" ;;
+    *+k3s*)  k8s_distro="K3s"  ;;
+    *-eks-*) k8s_distro="EKS"  ;;
+    *-gke.*) k8s_distro="GKE"  ;;
+    *-aks*)  k8s_distro="AKS"  ;;
+  esac
+  if [[ -d "$output_dir/openshift" ]] && ls "$output_dir/openshift"/* >/dev/null 2>&1; then
+    k8s_distro="OpenShift"
+  fi
+
+  # Nodes
+  local k8s_nodes_total=0 k8s_nodes_unhealthy=0 storage_nodes="$NA"
+  local worker_os="" worker_kernel=""
+  if [[ -f "$k8s_nodes_file" ]]; then
+    k8s_nodes_total=$(awk 'NR>1 && NF>0' "$k8s_nodes_file" | wc -l | tr -d ' ')
+    k8s_nodes_unhealthy=$(awk 'NR>1 && NF>0 && $2!="Ready"' "$k8s_nodes_file" | wc -l | tr -d ' ')
+    worker_os=$(awk 'NR>1 && $3 ~ /worker/ {out=""; for(i=8;i<=NF-2;i++) out=out (out?" ":"") $i; print out}' \
+                 "$k8s_nodes_file" | sort -u | paste -sd ", " -)
+    worker_kernel=$(awk 'NR>1 && $3 ~ /worker/ {print $(NF-1)}' "$k8s_nodes_file" | sort -u | paste -sd ", " -)
+    if [[ -z "$worker_os" ]]; then
+      worker_os=$(awk 'NR>1 {out=""; for(i=8;i<=NF-2;i++) out=out (out?" ":"") $i; print out}' \
+                   "$k8s_nodes_file" | sort -u | paste -sd ", " -)
+      worker_kernel=$(awk 'NR>1 {print $(NF-1)}' "$k8s_nodes_file" | sort -u | paste -sd ", " -)
+    fi
+  fi
+  [[ -f "$pxctl_status" ]] && storage_nodes=$(awk -F: '/Total Nodes:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+
+  # Telemetry
+  local telemetry_raw="" telemetry="$NA"
+  if [[ -f "$stc" ]]; then
+    telemetry_raw=$(awk '
+      /^      telemetry:/ {flag=1; next}
+      flag && /^      [a-zA-Z]/ {flag=0}
+      flag && /^        enabled:/ {print $2; exit}
+    ' "$stc")
+    case "$telemetry_raw" in
+      true)  telemetry="Enabled"  ;;
+      false) telemetry="Disabled" ;;
+    esac
+  fi
+
+  # Storage Type and Cloud Provider
+  local storage_type="$NA" cloud_provider="$NA"
+  if [[ -f "$stc" ]]; then
+    if grep -qE "^    cloudStorage:" "$stc"; then
+      storage_type="Cloud"
+      cloud_provider=$(awk '
+        /^    cloudStorage:/ {flag=1; next}
+        flag && /^    [a-zA-Z]/ {flag=0}
+        flag && /^      provider:/ {sub(/.*provider: */,""); print; exit}
+      ' "$stc")
+      [[ -z "$cloud_provider" ]] && cloud_provider="$NA"
+    elif grep -qE "^    storage:" "$stc"; then
+      storage_type="Local"
+    fi
+  fi
+
+  # Store Backend Version (StoreV2 is opted-in via -T px-storev2 in
+  # the portworx.io/misc-args annotation on the StorageCluster)
+  local store_version="StoreV1" misc_args=""
+  if [[ -f "$stc" ]]; then
+    misc_args=$(awk '
+      /^    annotations:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      portworx\.io\/misc-args:/ {sub(/.*misc-args:[[:space:]]*/,""); gsub(/^"|"$/,""); print; exit}
+    ' "$stc")
+    if [[ "$misc_args" == *px-storev2* ]]; then
+      store_version="StoreV2"
+    fi
+  fi
+
+  # KVDB TLS
+  local kvdb_tls="$NA" _raw=""
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    kvdb:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      enableTLS:/ {sub(/.*enableTLS:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  kvdb_tls="Enabled"  ;;
+      false) kvdb_tls="Disabled" ;;
+    esac
+  fi
+
+  # PX Security
+  local px_security="Disabled"
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    security:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      enabled:/ {sub(/.*enabled:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  px_security="Enabled"  ;;
+      false) px_security="Disabled" ;;
+    esac
+  fi
+
+  # Autopilot enabled flag
+  local autopilot_enabled="$NA"
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    autopilot:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      enabled:/ {sub(/.*enabled:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  autopilot_enabled="Enabled"  ;;
+      false) autopilot_enabled="Disabled" ;;
+    esac
+  fi
+
+  # Stork webhook-controller arg
+  local stork_webhook="$NA"
+  if [[ -f "$stc" ]]; then
+    _raw=$(awk '
+      /^    stork:/ {sf=1; next}
+      sf && /^    [a-zA-Z]/ {sf=0; exit}
+      sf && /^      args:/ {af=1; next}
+      sf && af && /^      [a-zA-Z]/ {af=0}
+      sf && af && /^        webhook-controller:/ {sub(/.*webhook-controller:[[:space:]]*/,""); gsub(/^"|"$/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    case "$_raw" in
+      true)  stork_webhook="Enabled"  ;;
+      false) stork_webhook="Disabled" ;;
+    esac
+  fi
+
+  # Custom Image Registry (indicates internal/airgapped-style registry)
+  local custom_registry="$NA"
+  [[ -f "$stc" ]] && custom_registry=$(awk '
+    /^    customImageRegistry:/ {sub(/.*customImageRegistry:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+  ' "$stc")
+  [[ -z "$custom_registry" ]] && custom_registry="$NA"
+
+  # Airgapped installation (px-versions ConfigMap listed in portworx/px_cm.txt)
+  local airgapped="No"
+  local px_cm_file="$output_dir/portworx/px_cm.txt"
+  if [[ -f "$px_cm_file" ]] && grep -qE "^px-versions[[:space:]]" "$px_cm_file"; then
+    airgapped="Yes (px-versions CM present)"
+  fi
+
+  {
+    echo "================================================================"
+    echo "                 Portworx Cluster Overview"
+    echo "================================================================"
+    echo "Generated:           $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "Diag Bundle:         $(basename "$output_dir")"
+    echo "Generator Version:   $SCRIPT_VERSION"
+    echo
+    echo "---- Cluster Identity ----"
+    printf "Cluster ID:          %s\n" "${cluster_id:-$NA}"
+    printf "Cluster UUID:        %s\n" "${cluster_uuid:-$NA}"
+    if [[ "$custom_registry" != "$NA" ]]; then
+      printf "Image Registry:      Internal (%s)\n" "$custom_registry"
+    fi
+    echo
+    echo "---- Versions ----"
+    printf "PX Version:          %s\n" "${px_version:-$NA}"
+    printf "Operator Version:    %s\n" "${operator_version:-$NA}"
+    printf "Stork Version:       %s\n" "${stork_version:-$NA}"
+    printf "Autopilot Version:   %s\n" "${autopilot_version:-$NA}"
+    printf "K8s Version:         %s\n" "${k8s_version:-$NA}"
+    printf "K8s Distro:          %s\n" "$k8s_distro"
+    echo
+    echo "---- StorageCluster Status ----"
+    printf "Phase:               %s\n" "${stc_phase:-$NA}"
+    printf "Runtime State:       %s\n" "${stc_runtime:-$NA}"
+    if [[ -n "$stc_last_msg" && -n "$stc_last_time" ]]; then
+      printf "Last Condition:      %s (%s)\n" "$stc_last_msg" "$stc_last_time"
+    else
+      printf "Last Condition:      %s\n" "${stc_last_msg:-$NA}"
+    fi
+    echo
+    echo "---- Nodes ----"
+    printf "Total k8s Nodes:     %s\n" "$k8s_nodes_total"
+    printf "Unhealthy Nodes:     %s\n" "$k8s_nodes_unhealthy"
+    printf "Storage Nodes:       %s\n" "${storage_nodes:-$NA}"
+    printf "Worker OS:           %s\n" "${worker_os:-$NA}"
+    printf "Worker Kernel:       %s\n" "${worker_kernel:-$NA}"
+    echo
+    echo "---- Storage ----"
+    printf "Storage Type:        %s\n" "$storage_type"
+    printf "Cloud Provider:      %s\n" "$cloud_provider"
+    printf "Storage Backend:     %s\n" "$store_version"
+    echo
+    echo "---- Features ----"
+    printf "Telemetry:           %s\n" "$telemetry"
+    printf "KVDB TLS:            %s\n" "$kvdb_tls"
+    printf "PX Security:         %s\n" "$px_security"
+    printf "Autopilot:           %s\n" "$autopilot_enabled"
+    printf "Stork Webhook:       %s\n" "$stork_webhook"
+    printf "Airgapped:           %s\n" "$airgapped"
+  } > "$overview_file"
+}
+
 
 
 print_progress 7
@@ -1681,6 +1965,13 @@ else
   extract_migration_op
   print_progress 11
   extract_storkctl_op
+fi
+
+if [[ "$option" == "PX" && "$PXCSIV3" != "true" ]]; then
+  print_progress 12
+  generate_cluster_overview
+else
+  print_progress 12 skip
 fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
