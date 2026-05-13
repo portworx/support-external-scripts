@@ -1770,6 +1770,29 @@ generate_cluster_overview() {
   fi
   [[ -f "$pxctl_status" ]] && storage_nodes=$(awk -F: '/Total Nodes:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
 
+  # License status
+  local license_status="$NA"
+  [[ -f "$pxctl_status" ]] && license_status=$(awk '/^License:/ {sub(/^License:[[:space:]]*/,""); print; exit}' "$pxctl_status")
+
+  # PX Volume and Snapshot counts
+  local vol_count="$NA" snap_count="$NA"
+  local vol_list="$output_dir/portworx/pxctl_out/pxctl_volume_list.txt"
+  local snap_list="$output_dir/portworx/pxctl_out/pxctl_volume_snapshot_list.txt"
+  if [[ -f "$vol_list" ]]; then
+    vol_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$vol_list")
+  fi
+  if [[ -f "$snap_list" ]]; then
+    snap_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$snap_list")
+  fi
+
+  # HA=1 volume count: data volumes only (excludes proxy / direct-access volumes)
+  # pxctl volume list -v columns (whitespace-split): $1=ID $2=NAME $3=size_val $4=size_unit
+  #   $5=HA $6=SHARED $7=ENCRYPTED $8=PROXY-VOLUME $9=IO_PRIORITY $10+...=STATUS $NF=SNAP-ENABLED
+  local ha1_vol_count=0
+  if [[ -f "$vol_list" ]]; then
+    ha1_vol_count=$(awk 'NR>1 && NF>0 && $5=="1" && $8=="no" {c++} END {print c+0}' "$vol_list")
+  fi
+
   # Telemetry
   local telemetry_raw="" telemetry="$NA"
   if [[ -f "$stc" ]]; then
@@ -1886,30 +1909,122 @@ generate_cluster_overview() {
     airgapped="Yes (px-versions CM present)"
   fi
 
+  # ---- Health Check variables ----
+
+  # PX pods: any not-ready or non-Running pods
+  local px_pods_file="$output_dir/portworx/workloads/px_pods.txt"
+  local unhealthy_pods=()
+  if [[ -f "$px_pods_file" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && unhealthy_pods+=("$line")
+    done < <(awk 'NR>1 && NF>0 {
+      split($2, r, "/")
+      if (r[1] != r[2] || $3 != "Running") printf "%-45s READY=%-7s STATUS=%s\n", $1, $2, $3
+    }' "$px_pods_file")
+  fi
+
+  # Disruption budget: is allow:false set in updateStrategy.rollingUpdate.disruption?
+  local kvdb_disruption_allowed=""
+  if [[ -f "$stc" ]]; then
+    kvdb_disruption_allowed=$(awk '
+      /^    updateStrategy:/ {us=1; next}
+      us && /^    [a-zA-Z]/ {us=0; exit}
+      us && /^          allow:/ {sub(/.*allow:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+  fi
+
+  # KVDB member health: any member with HEALTHY=false
+  local kvdb_members_file="$output_dir/portworx/pxctl_out/pxctl_kvdb_members.txt"
+  local unhealthy_kvdb=()
+  if [[ -f "$kvdb_members_file" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && unhealthy_kvdb+=("$line")
+    done < <(awk 'NR>2 && NF>0 && $5=="false" {print $1, "(HEALTHY=false)"}' "$kvdb_members_file")
+  fi
+
+  # Kernel version consistency across PX nodes (parsed from pxctl status node table)
+  # PX version field looks like "3.5.2.1-313595a" (4-part.hex); the next field is the kernel
+  local mixed_kernels="No" kernel_list=""
+  if [[ -f "$pxctl_status" ]]; then
+    kernel_list=$(awk '
+      /^[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+[[:space:]]/ {
+        for (i=1; i<=NF; i++) {
+          if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]+$/ && i+1<=NF) {
+            print $(i+1); break
+          }
+        }
+      }
+    ' "$pxctl_status" | sort -u)
+    if [[ -n "$kernel_list" ]] && [[ $(echo "$kernel_list" | wc -l | tr -d ' ') -gt 1 ]]; then
+      mixed_kernels="Yes"
+    fi
+  fi
+
+  # Pending PVCs backed by a PX StorageClass
+  local px_pvc_pending=()
+  local sc_yaml="$output_dir/storage/sc.yaml"
+  local pvc_list_file="$output_dir/storage/pvc_list.txt"
+  if [[ -f "$sc_yaml" && -f "$pvc_list_file" ]]; then
+    local px_sc_names
+    px_sc_names=$(awk '
+      /^- apiVersion:/ || /^apiVersion:/ {name=""}
+      /^  name:/ {name=$2}
+      /^  provisioner:[[:space:]]*(pxd\.portworx\.com|kubernetes\.io\/portworx-volume)/ {if (name) print name}
+    ' "$sc_yaml")
+    if [[ -n "$px_sc_names" ]]; then
+      while IFS= read -r line; do
+        [[ -n "$line" ]] && px_pvc_pending+=("$line")
+      done < <(awk -v px_scs="$px_sc_names" '
+        BEGIN { n=split(px_scs, arr, "\n"); for (i=1;i<=n;i++) sc_map[arr[i]]=1 }
+        NR>1 && $3=="Pending" && sc_map[$7] { print $1"/"$2, "("$7")" }
+      ' "$pvc_list_file")
+    fi
+  fi
+
+  # Update Strategy type
+  local update_strategy_type="$NA"
+  if [[ -f "$stc" ]]; then
+    update_strategy_type=$(awk '
+      /^    updateStrategy:/ {flag=1; next}
+      flag && /^    [a-zA-Z]/ {flag=0; exit}
+      flag && /^      type:/ {sub(/.*type:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+  fi
+
+  # Section header helper – ASCII only, fixed 66-char width
+  # Usage: _sec "Section Name"  → "-- SECTION NAME --...--"
+  _sec() {
+    local title
+    title=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+    local dashes
+    dashes=$(printf '%*s' "$(( 60 - ${#title} ))" "" | tr ' ' '-')
+    printf "\n-- %s --%s\n" "$title" "$dashes"
+  }
+
   {
     echo "================================================================"
-    echo "                 Portworx Cluster Overview"
+    echo "           Portworx Cluster Overview"
     echo "================================================================"
-    echo "Generated:           $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "Diag Bundle:         $(basename "$output_dir")"
-    echo "Generator Version:   $SCRIPT_VERSION"
-    echo
-    echo "---- Cluster Identity ----"
+    printf "Generated:           %s\n" "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf "Diag Bundle:         %s\n" "$(basename "$output_dir")"
+    printf "Generator Version:   %s\n" "$SCRIPT_VERSION"
+
+    _sec "Cluster Identity"
     printf "Cluster ID:          %s\n" "${cluster_id:-$NA}"
     printf "Cluster UUID:        %s\n" "${cluster_uuid:-$NA}"
-    if [[ "$custom_registry" != "$NA" ]]; then
+    printf "License:             %s\n" "${license_status:-$NA}"
+    [[ "$custom_registry" != "$NA" ]] && \
       printf "Image Registry:      Internal (%s)\n" "$custom_registry"
-    fi
-    echo
-    echo "---- Versions ----"
+
+    _sec "Versions"
     printf "PX Version:          %s\n" "${px_version:-$NA}"
     printf "Operator Version:    %s\n" "${operator_version:-$NA}"
     printf "Stork Version:       %s\n" "${stork_version:-$NA}"
     printf "Autopilot Version:   %s\n" "${autopilot_version:-$NA}"
     printf "K8s Version:         %s\n" "${k8s_version:-$NA}"
     printf "K8s Distro:          %s\n" "$k8s_distro"
-    echo
-    echo "---- StorageCluster Status ----"
+
+    _sec "StorageCluster Status"
     printf "Phase:               %s\n" "${stc_phase:-$NA}"
     printf "Runtime State:       %s\n" "${stc_runtime:-$NA}"
     if [[ -n "$stc_last_msg" && -n "$stc_last_time" ]]; then
@@ -1917,26 +2032,79 @@ generate_cluster_overview() {
     else
       printf "Last Condition:      %s\n" "${stc_last_msg:-$NA}"
     fi
-    echo
-    echo "---- Nodes ----"
+
+    _sec "Nodes"
     printf "Total k8s Nodes:     %s\n" "$k8s_nodes_total"
     printf "Unhealthy Nodes:     %s\n" "$k8s_nodes_unhealthy"
-    printf "Storage Nodes:       %s\n" "${storage_nodes:-$NA}"
+    printf "Portworx Nodes:      %s\n" "${storage_nodes:-$NA}"
     printf "Worker OS:           %s\n" "${worker_os:-$NA}"
     printf "Worker Kernel:       %s\n" "${worker_kernel:-$NA}"
-    echo
-    echo "---- Storage ----"
+
+    _sec "Storage"
     printf "Storage Type:        %s\n" "$storage_type"
     printf "Cloud Provider:      %s\n" "$cloud_provider"
     printf "Storage Backend:     %s\n" "$store_version"
-    echo
-    echo "---- Features ----"
+    printf "Total PX Volumes:    %s\n" "$vol_count"
+    printf "Total PX Snapshots:  %s\n" "$snap_count"
+
+    _sec "Features"
     printf "Telemetry:           %s\n" "$telemetry"
     printf "KVDB TLS:            %s\n" "$kvdb_tls"
     printf "PX Security:         %s\n" "$px_security"
     printf "Autopilot:           %s\n" "$autopilot_enabled"
     printf "Stork Webhook:       %s\n" "$stork_webhook"
     printf "Airgapped:           %s\n" "$airgapped"
+
+    _sec "Health Checks"
+    # PX Pods
+    if [[ ${#unhealthy_pods[@]} -eq 0 ]]; then
+      printf "%-22s [OK]   All pods healthy\n" "PX Pods:"
+    else
+      printf "%-22s [WARN] Unhealthy pods detected:\n" "PX Pods:"
+      for _p in "${unhealthy_pods[@]}"; do printf "  - %s\n" "$_p"; done
+    fi
+    # Disruption budget
+    if [[ "$kvdb_disruption_allowed" == "false" ]]; then
+      printf "%-22s [WARN] Rolling update disruption is set to allow: false\n" "Disruption Budget:"
+    else
+      printf "%-22s [OK]   Disruption allowed\n" "Disruption Budget:"
+    fi
+    # KVDB members
+    if [[ ${#unhealthy_kvdb[@]} -eq 0 ]]; then
+      printf "%-22s [OK]   All members healthy\n" "KVDB Members:"
+    else
+      printf "%-22s [WARN] Unhealthy members detected:\n" "KVDB Members:"
+      for _m in "${unhealthy_kvdb[@]}"; do printf "  - %s\n" "$_m"; done
+    fi
+    # Kernel version consistency
+    if [[ "$mixed_kernels" == "Yes" ]]; then
+      printf "%-22s [WARN] Mixed kernel versions across PX nodes:\n" "Kernel Versions:"
+      while IFS= read -r _k; do [[ -n "$_k" ]] && printf "  - %s\n" "$_k"; done <<< "$kernel_list"
+    else
+      _single_kernel=$(echo "$kernel_list" | head -1)
+      printf "%-22s [OK]   Consistent (%s)\n" "Kernel Versions:" "${_single_kernel:-$NA}"
+    fi
+    # HA=1 volumes (non-proxy / non-direct-access)
+    if [[ "$ha1_vol_count" -gt 0 ]]; then
+      printf "%-22s [WARN] %d volume(s) with HA=1 (single replica) detected\n" "HA-1 Volumes:" "$ha1_vol_count"
+    else
+      printf "%-22s [OK]   No single-replica volumes\n" "HA-1 Volumes:"
+    fi
+    # Pending PX PVCs
+    if [[ ${#px_pvc_pending[@]} -eq 0 ]]; then
+      printf "%-22s [OK]   None\n" "Pending PX PVCs:"
+    else
+      printf "%-22s [WARN] PX-backed PVCs stuck in Pending:\n" "Pending PX PVCs:"
+      for _pvc in "${px_pvc_pending[@]}"; do printf "  - %s\n" "$_pvc"; done
+    fi
+    # Update Strategy
+    if [[ "$update_strategy_type" == "RollingUpdate" ]]; then
+      printf "%-22s [OK]   RollingUpdate\n" "Update Strategy:"
+    else
+      printf "%-22s [WARN] Expected RollingUpdate, found: %s\n" "Update Strategy:" "${update_strategy_type:-$NA}"
+    fi
+    echo
+    echo "================================================================"
   } > "$overview_file"
 }
 
