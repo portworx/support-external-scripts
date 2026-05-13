@@ -1923,14 +1923,18 @@ generate_cluster_overview() {
     }' "$px_pods_file")
   fi
 
-  # Disruption budget: is allow:false set in updateStrategy.rollingUpdate.disruption?
-  local kvdb_disruption_allowed=""
-  if [[ -f "$stc" ]]; then
-    kvdb_disruption_allowed=$(awk '
-      /^    updateStrategy:/ {us=1; next}
-      us && /^    [a-zA-Z]/ {us=0; exit}
-      us && /^          allow:/ {sub(/.*allow:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
-    ' "$stc")
+  # Disruption budget: check px-kvdb and px-storage PDBs from portworx/px_pdb.txt
+  # Columns (whitespace-split): $1=NAME $2=MIN_AVAIL $3=MAX_UNAVAIL $4=ALLOWED_DISRUPTIONS $5=AGE
+  # Flag any PDB where ALLOWED DISRUPTIONS is 0 or absent.
+  local pdb_file="$output_dir/portworx/px_pdb.txt"
+  local pdb_issues=()
+  if [[ -f "$pdb_file" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && pdb_issues+=("$line")
+    done < <(awk 'NR>1 && ($1=="px-kvdb" || $1=="px-storage") {
+      if ($4 == "" || $4+0 <= 0)
+        printf "%-15s (ALLOWED DISRUPTIONS=%s)\n", $1, ($4=="" ? "missing" : $4)
+    }' "$pdb_file")
   fi
 
   # KVDB member health: any member with HEALTHY=false
@@ -2078,11 +2082,12 @@ generate_cluster_overview() {
       printf "%-22s [WARN] Unhealthy pods detected:\n" "PX Pods:"
       for _p in "${unhealthy_pods[@]}"; do printf "  - %s\n" "$_p"; done
     fi
-    # Disruption budget
-    if [[ "$kvdb_disruption_allowed" == "false" ]]; then
-      printf "%-22s [WARN] Rolling update disruption is set to allow: false\n" "Disruption Budget:"
+    # Disruption budget (PDB check for px-kvdb and px-storage)
+    if [[ ${#pdb_issues[@]} -eq 0 ]]; then
+      printf "%-22s [OK]   px-kvdb and px-storage disruptions allowed\n" "Disruption Budget:"
     else
-      printf "%-22s [OK]   Disruption allowed\n" "Disruption Budget:"
+      printf "%-22s [WARN] Zero disruptions allowed:\n" "Disruption Budget:"
+      for _i in "${pdb_issues[@]}"; do printf "  - %s\n" "$_i"; done
     fi
     # KVDB members
     if [[ ${#unhealthy_kvdb[@]} -eq 0 ]]; then
