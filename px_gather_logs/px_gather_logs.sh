@@ -1803,7 +1803,7 @@ generate_cluster_overview() {
     ' "$stc")
     case "$telemetry_raw" in
       true)  telemetry="Enabled"  ;;
-      false) telemetry="Disabled" ;;
+      *) telemetry="Disabled" ;;
     esac
   fi
 
@@ -1847,7 +1847,7 @@ generate_cluster_overview() {
     ' "$stc")
     case "$_raw" in
       true)  kvdb_tls="Enabled"  ;;
-      false) kvdb_tls="Disabled" ;;
+      *) kvdb_tls="Disabled" ;;
     esac
   fi
 
@@ -1861,7 +1861,7 @@ generate_cluster_overview() {
     ' "$stc")
     case "$_raw" in
       true)  px_security="Enabled"  ;;
-      false) px_security="Disabled" ;;
+      *) px_security="Disabled" ;;
     esac
   fi
 
@@ -1875,7 +1875,7 @@ generate_cluster_overview() {
     ' "$stc")
     case "$_raw" in
       true)  autopilot_enabled="Enabled"  ;;
-      false) autopilot_enabled="Disabled" ;;
+      *) autopilot_enabled="Disabled" ;;
     esac
   fi
 
@@ -1891,7 +1891,7 @@ generate_cluster_overview() {
     ' "$stc")
     case "$_raw" in
       true)  stork_webhook="Enabled"  ;;
-      false) stork_webhook="Disabled" ;;
+      *) stork_webhook="Disabled" ;;
     esac
   fi
 
