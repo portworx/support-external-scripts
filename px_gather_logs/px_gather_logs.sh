@@ -1993,13 +1993,28 @@ generate_cluster_overview() {
 
   # Section header helper – ASCII only, fixed 66-char width
   # Usage: _sec "Section Name"  → "-- SECTION NAME --...--"
+  #_sec() {
+  #  local title
+  #  title=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+  #  local dashes
+  #  dashes=$(printf '%*s' "$(( 60 - ${#title} ))" "" | tr ' ' '-')
+  #  printf "\n-- %s --%s\n" "$title" "$dashes"
+  #}
+
   _sec() {
-    local title
-    title=$(echo "$1" | tr '[:lower:]' '[:upper:]')
-    local dashes
-    dashes=$(printf '%*s' "$(( 60 - ${#title} ))" "" | tr ' ' '-')
-    printf "\n-- %s --%s\n" "$title" "$dashes"
-  }
+  local title
+  title=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+  local total=62
+  local label=" ${title} "
+  local label_len=${#label}
+  local remaining=$(( total - label_len ))
+  local left=$(( remaining / 2 ))
+  local right=$(( remaining - left ))
+  local left_bar="" right_bar="" i
+  for ((i=0; i<left; i++));  do left_bar+="━"; done
+  for ((i=0; i<right; i++)); do right_bar+="━"; done
+  printf "\n%s%s%s\n" "$left_bar" "$label" "$right_bar"
+}
 
   {
     echo "================================================================"
