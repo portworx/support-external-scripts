@@ -1950,22 +1950,26 @@ generate_cluster_overview() {
 
   # PX Cluster State: check each node's Status and StorageStatus in pxctl_status.txt
   # Valid combinations: Online+Up | Online+"Up (This node)" | Online+"No Storage"
-  # Fields (whitespace-split): $1=IP $2=UUID $3=NodeName $4=Auth $5=StorageNode
   local cluster_node_issues=()
   if [[ -f "$pxctl_status" ]]; then
     while IFS= read -r line; do
       [[ -n "$line" ]] && cluster_node_issues+=("$line")
     done < <(awk '
       /^[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+[[:space:]]/ {
-        status = $10
-        if ($11 == "No" && $12 == "Storage") {
+        # Detect column shift: "Unavailable" replaces two-field "val unit" pairs
+        if ($6 == "Unavailable") {
+          status = $8; ss1 = $9; ss2 = $10
+        } else {
+          status = $10; ss1 = $11; ss2 = $12
+        }
+        if (ss1 == "No" && ss2 == "Storage") {
           storagestatus = "No Storage"
           valid = (status == "Online")
-        } else if ($11 == "Up") {
-          storagestatus = ($12 == "(This" ? "Up (This node)" : "Up")
+        } else if (ss1 == "Up") {
+          storagestatus = (ss2 == "(This" ? "Up (This node)" : "Up")
           valid = (status == "Online")
         } else {
-          storagestatus = $11
+          storagestatus = ss1
           valid = 0
         }
         if (!valid)
