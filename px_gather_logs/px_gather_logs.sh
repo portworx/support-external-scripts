@@ -1937,17 +1937,44 @@ generate_cluster_overview() {
     }' "$pdb_file")
   fi
 
-  # KVDB member health: any member with HEALTHY=false
+  # KVDB member health: any member with HEALTHY=false, plus count check (expected >= 3)
   local kvdb_members_file="$output_dir/portworx/pxctl_out/pxctl_kvdb_members.txt"
   local unhealthy_kvdb=()
+  local kvdb_member_count=0
   if [[ -f "$kvdb_members_file" ]]; then
+    kvdb_member_count=$(awk 'NR>2 && NF>0 {c++} END {print c+0}' "$kvdb_members_file")
     while IFS= read -r line; do
       [[ -n "$line" ]] && unhealthy_kvdb+=("$line")
     done < <(awk 'NR>2 && NF>0 && $5=="false" {print $1, "(HEALTHY=false)"}' "$kvdb_members_file")
   fi
 
+  # PX Cluster State: check each node's Status and StorageStatus in pxctl_status.txt
+  # Valid combinations: Online+Up | Online+"Up (This node)" | Online+"No Storage"
+  # Fields (whitespace-split): $1=IP $2=UUID $3=NodeName $4=Auth $5=StorageNode
+  local cluster_node_issues=()
+  if [[ -f "$pxctl_status" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && cluster_node_issues+=("$line")
+    done < <(awk '
+      /^[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+[[:space:]]/ {
+        status = $10
+        if ($11 == "No" && $12 == "Storage") {
+          storagestatus = "No Storage"
+          valid = (status == "Online")
+        } else if ($11 == "Up") {
+          storagestatus = ($12 == "(This" ? "Up (This node)" : "Up")
+          valid = (status == "Online")
+        } else {
+          storagestatus = $11
+          valid = 0
+        }
+        if (!valid)
+          printf "%-35s  Status=%-10s  StorageStatus=%s\n", $3, status, storagestatus
+      }
+    ' "$pxctl_status")
+  fi
+
   # Kernel version consistency across PX nodes (parsed from pxctl status node table)
-  # PX version field looks like "3.5.2.1-313595a" (4-part.hex); the next field is the kernel
   local mixed_kernels="No" kernel_list=""
   if [[ -f "$pxctl_status" ]]; then
     kernel_list=$(awk '
@@ -1997,13 +2024,7 @@ generate_cluster_overview() {
 
   # Section header helper – ASCII only, fixed 66-char width
   # Usage: _sec "Section Name"  → "-- SECTION NAME --...--"
-  #_sec() {
-  #  local title
-  #  title=$(echo "$1" | tr '[:lower:]' '[:upper:]')
-  #  local dashes
-  #  dashes=$(printf '%*s' "$(( 60 - ${#title} ))" "" | tr ' ' '-')
-  #  printf "\n-- %s --%s\n" "$title" "$dashes"
-  #}
+
 
   _sec() {
   local title
@@ -2075,6 +2096,13 @@ generate_cluster_overview() {
     printf "Airgapped:           %s\n" "$airgapped"
 
     _sec "Health Checks"
+    # PX Cluster State (node Status + StorageStatus from pxctl_status.txt)
+    if [[ ${#cluster_node_issues[@]} -eq 0 ]]; then
+      printf "%-22s [OK]   All nodes Online\n" "PX Cluster State:"
+    else
+      printf "%-22s [WARN] Node(s) in unexpected state:\n" "PX Cluster State:"
+      for _n in "${cluster_node_issues[@]}"; do printf "  - %s\n" "$_n"; done
+    fi
     # PX Pods
     if [[ ${#unhealthy_pods[@]} -eq 0 ]]; then
       printf "%-22s [OK]   All pods healthy\n" "PX Pods:"
@@ -2089,11 +2117,13 @@ generate_cluster_overview() {
       printf "%-22s [WARN] Zero disruptions allowed:\n" "Disruption Budget:"
       for _i in "${pdb_issues[@]}"; do printf "  - %s\n" "$_i"; done
     fi
-    # KVDB members
-    if [[ ${#unhealthy_kvdb[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   All members healthy\n" "KVDB Members:"
+    # KVDB members: flag if any unhealthy OR fewer than 3 members
+    if [[ ${#unhealthy_kvdb[@]} -eq 0 && "$kvdb_member_count" -ge 3 ]]; then
+      printf "%-22s [OK]   All %d members healthy\n" "KVDB Members:" "$kvdb_member_count"
     else
-      printf "%-22s [WARN] Unhealthy members detected:\n" "KVDB Members:"
+      printf "%-22s [WARN] Issues detected:\n" "KVDB Members:"
+      [[ "$kvdb_member_count" -lt 3 ]] && \
+        printf "  - Only %d member(s) found (expected >= 3)\n" "$kvdb_member_count"
       for _m in "${unhealthy_kvdb[@]}"; do printf "  - %s\n" "$_m"; done
     fi
     # Kernel version consistency
