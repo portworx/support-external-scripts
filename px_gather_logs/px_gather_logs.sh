@@ -2139,6 +2139,9 @@ generate_cluster_overview() {
     else
       printf "PX Version:          %s\n" "${px_version:-$NA}"
     fi
+    if [[ "$mode" != "PXB" ]]; then
+      printf "Operator Version:    %s\n" "${operator_version:-$NA}"
+    fi
     printf "Operator Version:    %s\n" "${operator_version:-$NA}"
     if [[ "$mode" == "PXE" ]]; then
       printf "Stork Version:       %s\n" "${stork_version:-$NA}"
