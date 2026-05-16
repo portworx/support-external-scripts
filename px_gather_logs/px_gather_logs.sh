@@ -1827,14 +1827,35 @@ generate_cluster_overview() {
   fi
 
   # PX Volume and Snapshot counts
+  # PXE: derived from pxctl outputs
+  # PXCSI: derived from purevolumes.txt / puresnapshots.txt (kubectl get pure*)
   local vol_count="$NA" snap_count="$NA"
   local vol_list="$output_dir/portworx/pxctl_out/pxctl_volume_list.txt"
   local snap_list="$output_dir/portworx/pxctl_out/pxctl_volume_snapshot_list.txt"
-  if [[ -f "$vol_list" ]]; then
-    vol_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$vol_list")
-  fi
-  if [[ -f "$snap_list" ]]; then
-    snap_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$snap_list")
+  local pure_vol_file="$output_dir/portworx/px_csi/purevolumes.txt"
+  local pure_snap_file="$output_dir/portworx/px_csi/puresnapshots.txt"
+  if [[ "$mode" == "PXCSI" ]]; then
+    if [[ -f "$pure_vol_file" ]]; then
+      vol_count=$(awk '
+        NR>1 && NF>=5 { bt[$4]++; total++ }
+        END {
+          if (total==0) { print "0"; exit }
+          out=""
+          for (k in bt) out = out (out?", ":"") k ": " bt[k]
+          printf "%d (%s)\n", total, out
+        }
+      ' "$pure_vol_file")
+    fi
+    if [[ -f "$pure_snap_file" ]]; then
+      snap_count=$(awk 'NR>1 && NF>=3 {c++} END {print c+0}' "$pure_snap_file")
+    fi
+  else
+    if [[ -f "$vol_list" ]]; then
+      vol_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$vol_list")
+    fi
+    if [[ -f "$snap_list" ]]; then
+      snap_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$snap_list")
+    fi
   fi
 
   # HA=1 volume count: data volumes only (excludes proxy / direct-access volumes)
@@ -1981,13 +2002,19 @@ generate_cluster_overview() {
 
   # ---- Health Check variables ----
 
-  # PX pods: any not-ready or non-Running pods
-  local px_pods_file="$output_dir/portworx/workloads/px_pods.txt"
+  # Pods health: any not-ready or non-Running pods (excluding Completed jobs).
+  # Source file is mode-aware: PXB uses pxb_pods.txt from px_backup namespace.
+  local px_pods_file
+  if [[ "$mode" == "PXB" ]]; then
+    px_pods_file="$output_dir/px_backup/pxb_pods.txt"
+  else
+    px_pods_file="$output_dir/portworx/workloads/px_pods.txt"
+  fi
   local unhealthy_pods=()
   if [[ -f "$px_pods_file" ]]; then
     while IFS= read -r line; do
       [[ -n "$line" ]] && unhealthy_pods+=("$line")
-    done < <(awk 'NR>1 && NF>0 {
+    done < <(awk 'NR>1 && NF>0 && $3 != "Completed" {
       split($2, r, "/")
       if (r[1] != r[2] || $3 != "Running") printf "%-45s READY=%-7s STATUS=%s\n", $1, $2, $3
     }' "$px_pods_file")
@@ -2201,67 +2228,83 @@ generate_cluster_overview() {
     fi
     printf "Airgapped:           %s\n" "$airgapped"
 
-    # Health Checks (rely on pxctl outputs; emitted only for PXE)
-    if [[ "$mode" == "PXE" ]]; then
+    # Health Checks (per-check mode gating). Pxctl-derived checks (cluster state,
+    # PDB, KVDB members, kernel, HA-1) apply to PXE only. PXB and PXCSI omit
+    # StorageCluster-based Update Strategy is suppressed for PXB.
     _sec "Health Checks"
-    # PX Cluster State (node Status + StorageStatus from pxctl_status.txt)
-    if [[ ${#cluster_node_issues[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   All nodes Online\n" "PX Cluster State:"
-    else
-      printf "%-22s [WARN] Node(s) in unexpected state:\n" "PX Cluster State:"
-      for _n in "${cluster_node_issues[@]}"; do printf "  - %s\n" "$_n"; done
+    # PX Cluster State (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ ${#cluster_node_issues[@]} -eq 0 ]]; then
+        printf "%-22s [OK]   All nodes Online\n" "PX Cluster State:"
+      else
+        printf "%-22s [WARN] Node(s) in unexpected state:\n" "PX Cluster State:"
+        for _n in "${cluster_node_issues[@]}"; do printf "  - %s\n" "$_n"; done
+      fi
     fi
-    # PX Pods
+    # Pods (label differs per mode)
+    local _pods_label="PX Pods:"
+    [[ "$mode" == "PXB" ]] && _pods_label="PXB Pods:"
     if [[ ${#unhealthy_pods[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   All pods healthy\n" "PX Pods:"
+      printf "%-22s [OK]   All pods healthy\n" "$_pods_label"
     else
-      printf "%-22s [WARN] Unhealthy pods detected:\n" "PX Pods:"
+      printf "%-22s [WARN] Unhealthy pods detected:\n" "$_pods_label"
       for _p in "${unhealthy_pods[@]}"; do printf "  - %s\n" "$_p"; done
     fi
-    # Disruption budget (PDB check for px-kvdb and px-storage)
-    if [[ ${#pdb_issues[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   px-kvdb and px-storage disruptions allowed\n" "Disruption Budget:"
-    else
-      printf "%-22s [WARN] Zero disruptions allowed:\n" "Disruption Budget:"
-      for _i in "${pdb_issues[@]}"; do printf "  - %s\n" "$_i"; done
+    # Disruption Budget (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ ${#pdb_issues[@]} -eq 0 ]]; then
+        printf "%-22s [OK]   px-kvdb and px-storage disruptions allowed\n" "Disruption Budget:"
+      else
+        printf "%-22s [WARN] Zero disruptions allowed:\n" "Disruption Budget:"
+        for _i in "${pdb_issues[@]}"; do printf "  - %s\n" "$_i"; done
+      fi
     fi
-    # KVDB members: flag if any unhealthy OR fewer than 3 members
-    if [[ ${#unhealthy_kvdb[@]} -eq 0 && "$kvdb_member_count" -ge 3 ]]; then
-      printf "%-22s [OK]   All %d members healthy\n" "KVDB Members:" "$kvdb_member_count"
-    else
-      printf "%-22s [WARN] Issues detected:\n" "KVDB Members:"
-      [[ "$kvdb_member_count" -lt 3 ]] && \
-        printf "  - Only %d member(s) found (expected >= 3)\n" "$kvdb_member_count"
-      for _m in "${unhealthy_kvdb[@]}"; do printf "  - %s\n" "$_m"; done
+    # KVDB Members (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ ${#unhealthy_kvdb[@]} -eq 0 && "$kvdb_member_count" -ge 3 ]]; then
+        printf "%-22s [OK]   All %d members healthy\n" "KVDB Members:" "$kvdb_member_count"
+      else
+        printf "%-22s [WARN] Issues detected:\n" "KVDB Members:"
+        [[ "$kvdb_member_count" -lt 3 ]] && \
+          printf "  - Only %d member(s) found (expected >= 3)\n" "$kvdb_member_count"
+        for _m in "${unhealthy_kvdb[@]}"; do printf "  - %s\n" "$_m"; done
+      fi
     fi
-    # Kernel version consistency
-    if [[ "$mixed_kernels" == "Yes" ]]; then
-      printf "%-22s [WARN] Mixed kernel versions across PX nodes:\n" "Kernel Versions:"
-      while IFS= read -r _k; do [[ -n "$_k" ]] && printf "  - %s\n" "$_k"; done <<< "$kernel_list"
-    else
-      _single_kernel=$(echo "$kernel_list" | head -1)
-      printf "%-22s [OK]   Consistent (%s)\n" "Kernel Versions:" "${_single_kernel:-$NA}"
+    # Kernel Versions (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ "$mixed_kernels" == "Yes" ]]; then
+        printf "%-22s [WARN] Mixed kernel versions across PX nodes:\n" "Kernel Versions:"
+        while IFS= read -r _k; do [[ -n "$_k" ]] && printf "  - %s\n" "$_k"; done <<< "$kernel_list"
+      else
+        _single_kernel=$(echo "$kernel_list" | head -1)
+        printf "%-22s [OK]   Consistent (%s)\n" "Kernel Versions:" "${_single_kernel:-$NA}"
+      fi
     fi
-    # HA=1 volumes (non-proxy / non-direct-access)
-    if [[ "$ha1_vol_count" -gt 0 ]]; then
-      printf "%-22s [WARN] %d volume(s) with HA=1 (single replica) detected\n" "HA-1 Volumes:" "$ha1_vol_count"
-    else
-      printf "%-22s [OK]   No single-replica volumes\n" "HA-1 Volumes:"
+    # HA-1 Volumes (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ "$ha1_vol_count" -gt 0 ]]; then
+        printf "%-22s [WARN] %d volume(s) with HA=1 (single replica) detected\n" "HA-1 Volumes:" "$ha1_vol_count"
+      else
+        printf "%-22s [OK]   No single-replica volumes\n" "HA-1 Volumes:"
+      fi
     fi
-    # Pending PX PVCs
-    if [[ ${#px_pvc_pending[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   None\n" "Pending PX PVCs:"
-    else
-      printf "%-22s [WARN] PX-backed PVCs stuck in Pending:\n" "Pending PX PVCs:"
-      for _pvc in "${px_pvc_pending[@]}"; do printf "  - %s\n" "$_pvc"; done
+    # Pending PX PVCs (PXE + PXCSI; not PXB)
+    if [[ "$mode" != "PXB" ]]; then
+      if [[ ${#px_pvc_pending[@]} -eq 0 ]]; then
+        printf "%-22s [OK]   None\n" "Pending PX PVCs:"
+      else
+        printf "%-22s [WARN] PX-backed PVCs stuck in Pending:\n" "Pending PX PVCs:"
+        for _pvc in "${px_pvc_pending[@]}"; do printf "  - %s\n" "$_pvc"; done
+      fi
     fi
-    # Update Strategy
-    if [[ "$update_strategy_type" == "RollingUpdate" ]]; then
-      printf "%-22s [OK]   RollingUpdate\n" "Update Strategy:"
-    else
-      printf "%-22s [WARN] Expected RollingUpdate, found: %s\n" "Update Strategy:" "${update_strategy_type:-$NA}"
+    # Update Strategy (StorageCluster-based; PXE + PXCSI only)
+    if [[ "$mode" != "PXB" ]]; then
+      if [[ "$update_strategy_type" == "RollingUpdate" ]]; then
+        printf "%-22s [OK]   RollingUpdate\n" "Update Strategy:"
+      else
+        printf "%-22s [WARN] Expected RollingUpdate, found: %s\n" "Update Strategy:" "${update_strategy_type:-$NA}"
+      fi
     fi
-    fi  # end Health Checks (PXE only)
     echo
     echo "================================================================"
   } > "$overview_file"
