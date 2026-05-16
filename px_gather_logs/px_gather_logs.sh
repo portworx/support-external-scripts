@@ -2145,12 +2145,11 @@ generate_cluster_overview() {
 
     if [[ "$mode" == "PXE" ]]; then
       printf "Stork Version:       %s\n" "${stork_version:-$NA}"
+      printf "Autopilot Version:   %s\n" "${autopilot_version:-$NA}"
     elif [[ "$mode" == "PXB" && -n "$stork_version" ]]; then
       printf "Stork Version:       %s\n" "$stork_version"
     fi
-    if [[ "$mode" == "PXE" ]]; then
-      printf "Autopilot Version:   %s\n" "${autopilot_version:-$NA}"
-    fi
+    
     printf "K8s Version:         %s\n" "${k8s_version:-$NA}"
     printf "K8s Distro:          %s\n" "$k8s_distro"
 
