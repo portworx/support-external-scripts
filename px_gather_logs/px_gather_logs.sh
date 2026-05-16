@@ -2142,7 +2142,7 @@ generate_cluster_overview() {
     if [[ "$mode" != "PXB" ]]; then
       printf "Operator Version:    %s\n" "${operator_version:-$NA}"
     fi
-    printf "Operator Version:    %s\n" "${operator_version:-$NA}"
+
     if [[ "$mode" == "PXE" ]]; then
       printf "Stork Version:       %s\n" "${stork_version:-$NA}"
     elif [[ "$mode" == "PXB" && -n "$stork_version" ]]; then
@@ -2168,7 +2168,7 @@ generate_cluster_overview() {
 
     _sec "Nodes"
     printf "Total k8s Nodes:     %s\n" "$k8s_nodes_total"
-    printf "Unhealthy Nodes:     %s\n" "$k8s_nodes_unhealthy"
+    printf "Unhealthy k8s Nodes:     %s\n" "$k8s_nodes_unhealthy"
     printf "Portworx Nodes:      %s\n" "${storage_nodes:-$NA}"
     if [[ "$mode" == "PXE" ]]; then
       printf "Worker OS:           %s\n" "${worker_os:-$NA}"
