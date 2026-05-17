@@ -2195,7 +2195,11 @@ generate_cluster_overview() {
     _sec "Nodes"
     printf "Total k8s Nodes:     %s\n" "$k8s_nodes_total"
     printf "Unhealthy k8s Nodes:     %s\n" "$k8s_nodes_unhealthy"
-    printf "Portworx Nodes:      %s\n" "${storage_nodes:-$NA}"
+    
+    if [[ "$mode" != "PXB" ]]; then
+      printf "Portworx Nodes:      %s\n" "${storage_nodes:-$NA}"
+    fi
+
     if [[ "$mode" == "PXE" ]]; then
       printf "Worker OS:           %s\n" "${worker_os:-$NA}"
       printf "Worker Kernel:       %s\n" "${worker_kernel:-$NA}"
