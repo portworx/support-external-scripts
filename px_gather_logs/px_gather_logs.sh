@@ -2194,7 +2194,7 @@ generate_cluster_overview() {
 
     _sec "Nodes"
     printf "Total k8s Nodes:     %s\n" "$k8s_nodes_total"
-    printf "Unhealthy k8s Nodes:     %s\n" "$k8s_nodes_unhealthy"
+    printf "Unhealthy k8s Nodes: %s\n" "$k8s_nodes_unhealthy"
     
     if [[ "$mode" != "PXB" ]]; then
       printf "Portworx Nodes:      %s\n" "${storage_nodes:-$NA}"
