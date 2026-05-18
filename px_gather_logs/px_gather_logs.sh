@@ -1657,8 +1657,7 @@ extract_storkctl_op() {
 }
 
 # Generate Cluster_Overview.txt summarising the cluster by parsing files
-# already collected in the bundle. Supports three modes selected from
-# $option/$PXCSIV3: PXE (PX, non CSIv3), PXCSI (PX, CSIv3), PXB (PX Backup).
+# $option: PXE (PX, non CSIv3), PXCSI (PX, CSIv3), PXB (PX Backup).
 generate_cluster_overview() {
   local stc="$output_dir/portworx/px_stc.yaml"
   local pxctl_status="$output_dir/portworx/pxctl_out/pxctl_status.txt"
@@ -1711,7 +1710,7 @@ generate_cluster_overview() {
     [[ -f "$stc" ]] && px_version=$(awk '/^    version: / {sub(/.*version: /,""); print; exit}' "$stc")
   fi
 
-  # Operator Version
+  # PX Operator Version
   local operator_version=""
   if [[ -f "$stc" ]]; then
     operator_version=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"operatorVersion: ")==1 {v=substr(l,18); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
@@ -1828,7 +1827,7 @@ generate_cluster_overview() {
 
   # PX Volume and Snapshot counts
   # PXE: derived from pxctl outputs
-  # PXCSI: derived from purevolumes.txt / puresnapshots.txt (kubectl get pure*)
+  # PXCSI: derived from purevolumes.txt / puresnapshots.txt
   local vol_count="$NA" snap_count="$NA"
   local vol_list="$output_dir/portworx/pxctl_out/pxctl_volume_list.txt"
   local snap_list="$output_dir/portworx/pxctl_out/pxctl_volume_snapshot_list.txt"
@@ -2003,7 +2002,7 @@ generate_cluster_overview() {
   # ---- Health Check variables ----
 
   # Pods health: any not-ready or non-Running pods (excluding Completed jobs).
-  # Source file is mode-aware: PXB uses pxb_pods.txt from px_backup namespace.
+
   local px_pods_file
   if [[ "$mode" == "PXB" ]]; then
     px_pods_file="$output_dir/px_backup/pxb_pods.txt"
@@ -2123,7 +2122,6 @@ generate_cluster_overview() {
     ' "$stc")
   fi
 
-  # Section header helper – ASCII only, fixed 66-char width
   # Usage: _sec "Section Name"  → "-- SECTION NAME --...--"
 
 
