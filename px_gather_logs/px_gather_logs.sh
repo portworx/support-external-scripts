@@ -2340,13 +2340,8 @@ else
   print_progress 11
   extract_storkctl_op
 fi
-
-if [[ "$option" == "PX" || "$option" == "PXB" ]]; then
   print_progress 12
   generate_cluster_overview
-else
-  print_progress 12 skip
-fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
 log_info "Extraction is completed"
