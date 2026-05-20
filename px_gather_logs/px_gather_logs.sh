@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.5.3"
+SCRIPT_VERSION="26.5.4"
 
 
 # Function to display usage
@@ -1656,32 +1656,61 @@ extract_storkctl_op() {
     done
 }
 
-# Generate Cluster_Overview.txt summarising the PX cluster by parsing files
-# already collected in the bundle. PX option only, non PXCSIv3 path.
+# Generate Cluster_Overview.txt summarising the cluster by parsing files
+# $option: PXE (PX, non CSIv3), PXCSI (PX, CSIv3), PXB (PX Backup).
 generate_cluster_overview() {
   local stc="$output_dir/portworx/px_stc.yaml"
   local pxctl_status="$output_dir/portworx/pxctl_out/pxctl_status.txt"
   local k8s_version_file="$output_dir/cluster/k8s_version.txt"
   local k8s_nodes_file="$output_dir/cluster/k8s_nodes.txt"
   local deploy_file="$output_dir/portworx/workloads/px_deploy.yaml"
+  local pure_secret="$output_dir/portworx/px-pure-secret_masked.yaml"
+  local pxb_pods_file="$output_dir/px_backup/pxb_pods.yaml"
   local overview_file="$output_dir/Cluster_Overview.txt"
   local NA="N/A"
 
+  # Mode discrimination
+  local mode="PXE"
+  if [[ "$option" == "PXB" ]]; then
+    mode="PXB"
+  elif [[ "$option" == "PX" && "$PXCSIV3" == "true" ]]; then
+    mode="PXCSI"
+  fi
+
   # Cluster Identity
   local cluster_id="" cluster_uuid=""
-  if [[ -f "$pxctl_status" ]]; then
-    cluster_id=$(awk -F: '/Cluster ID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
-    cluster_uuid=$(awk -F: '/Cluster UUID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
-  fi
-  if [[ -z "$cluster_uuid" && -f "$stc" ]]; then
-    cluster_uuid=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"clusterUid: ")==1 {v=substr(l,13); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
+  if [[ "$mode" == "PXCSI" && -f "$stc" ]]; then
+    cluster_id=$(awk '
+      /^  metadata:/ {f=1; next}
+      f && /^  [a-zA-Z]/ {f=0; exit}
+      f && /^    name:/ {sub(/.*name:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+    cluster_uuid=$(awk '
+      /^  status:/ {f=1; next}
+      f && /^  [a-zA-Z]/ {f=0; exit}
+      f && /^    clusterUid:/ {sub(/.*clusterUid:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
+    ' "$stc")
+  elif [[ "$mode" == "PXE" ]]; then
+    if [[ -f "$pxctl_status" ]]; then
+      cluster_id=$(awk -F: '/Cluster ID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+      cluster_uuid=$(awk -F: '/Cluster UUID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+    fi
+    if [[ -z "$cluster_uuid" && -f "$stc" ]]; then
+      cluster_uuid=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"clusterUid: ")==1 {v=substr(l,13); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
+    fi
   fi
 
-  # PX Version
-  local px_version=""
-  [[ -f "$stc" ]] && px_version=$(awk '/^    version: / {sub(/.*version: /,""); print; exit}' "$stc")
+  # PX Version (for PXE/PXCSI) or PXB Version (px-backup deployment image)
+  local px_version="" pxb_version=""
+  if [[ "$mode" == "PXB" ]]; then
+    if [[ -f "$pxb_pods_file" ]]; then
+      pxb_version=$(awk '/image:[[:space:]]+.*\/px-backup:/ {sub(/.*\/px-backup:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$pxb_pods_file")
+    fi
+  else
+    [[ -f "$stc" ]] && px_version=$(awk '/^    version: / {sub(/.*version: /,""); print; exit}' "$stc")
+  fi
 
-  # Operator Version
+  # PX Operator Version
   local operator_version=""
   if [[ -f "$stc" ]]; then
     operator_version=$(awk '{l=$0; sub(/^[[:space:]]+/,"",l)} index(l,"operatorVersion: ")==1 {v=substr(l,18); sub(/[[:space:]]+$/,"",v); print v; exit}' "$stc")
@@ -1695,15 +1724,26 @@ generate_cluster_overview() {
     done
   fi
 
-  # Stork Version (from stork deployment image)
+  # Stork Version (PXE: stork deployment/pod yaml under portworx/workloads;
+  # PXB: stork pod yaml under px_backup; PXCSI: not applicable)
   local stork_version=""
-  if [[ -f "$deploy_file" ]]; then
-    stork_version=$(awk '/image:[[:space:]]+.*\/stork:/ {sub(/.*\/stork:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$deploy_file")
-  fi
-  if [[ -z "$stork_version" ]]; then
+  if [[ "$mode" == "PXE" ]]; then
+    if [[ -f "$deploy_file" ]]; then
+      stork_version=$(awk '/image:[[:space:]]+.*\/stork:/ {sub(/.*\/stork:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$deploy_file")
+    fi
+    if [[ -z "$stork_version" ]]; then
+      local sf
+      for sf in "$output_dir"/portworx/workloads/stork-[0-9a-f]*.yaml \
+                "$output_dir"/portworx/workloads/stork-[!s]*.yaml; do
+        [[ -f "$sf" ]] || continue
+        stork_version=$(awk '/image:[[:space:]]+.*\/stork:/ {sub(/.*\/stork:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$sf")
+        [[ -n "$stork_version" ]] && break
+      done
+    fi
+  elif [[ "$mode" == "PXB" ]]; then
     local sf
-    for sf in "$output_dir"/portworx/workloads/stork-[0-9a-f]*.yaml \
-              "$output_dir"/portworx/workloads/stork-[!s]*.yaml; do
+    for sf in "$output_dir"/px_backup/stork-[0-9a-f]*.yaml \
+              "$output_dir"/px_backup/stork-[!s]*.yaml; do
       [[ -f "$sf" ]] || continue
       stork_version=$(awk '/image:[[:space:]]+.*\/stork:/ {sub(/.*\/stork:/,""); sub(/[[:space:]]+$/,""); print; exit}' "$sf")
       [[ -n "$stork_version" ]] && break
@@ -1768,21 +1808,53 @@ generate_cluster_overview() {
       worker_kernel=$(awk 'NR>1 {print $(NF-1)}' "$k8s_nodes_file" | sort -u | paste -sd ", " -)
     fi
   fi
-  [[ -f "$pxctl_status" ]] && storage_nodes=$(awk -F: '/Total Nodes:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+  if [[ "$mode" == "PXCSI" ]]; then
+    local px_pods_file="$output_dir/portworx/workloads/px_pods.txt"
+    if [[ -f "$px_pods_file" ]]; then
+      storage_nodes=$(awk 'NR>1 && $1 ~ /^px-pure-csi-node/ {print $7}' "$px_pods_file" | sort -u | grep -c '.' | tr -d ' ')
+    fi
+  elif [[ -f "$pxctl_status" ]]; then
+    storage_nodes=$(awk -F: '/Total Nodes:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+  fi
 
-  # License status
+  # License status (PXCSI is hardcoded; PXE reads from pxctl status)
   local license_status="$NA"
-  [[ -f "$pxctl_status" ]] && license_status=$(awk '/^License:/ {sub(/^License:[[:space:]]*/,""); print; exit}' "$pxctl_status")
+  if [[ "$mode" == "PXCSI" ]]; then
+    license_status="PX CSI for FA/FB"
+  elif [[ -f "$pxctl_status" ]]; then
+    license_status=$(awk '/^License:/ {sub(/^License:[[:space:]]*/,""); print; exit}' "$pxctl_status")
+  fi
 
   # PX Volume and Snapshot counts
+  # PXE: derived from pxctl outputs
+  # PXCSI: derived from purevolumes.txt / puresnapshots.txt
   local vol_count="$NA" snap_count="$NA"
   local vol_list="$output_dir/portworx/pxctl_out/pxctl_volume_list.txt"
   local snap_list="$output_dir/portworx/pxctl_out/pxctl_volume_snapshot_list.txt"
-  if [[ -f "$vol_list" ]]; then
-    vol_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$vol_list")
-  fi
-  if [[ -f "$snap_list" ]]; then
-    snap_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$snap_list")
+  local pure_vol_file="$output_dir/portworx/px_csi/purevolumes.txt"
+  local pure_snap_file="$output_dir/portworx/px_csi/puresnapshots.txt"
+  if [[ "$mode" == "PXCSI" ]]; then
+    if [[ -f "$pure_vol_file" ]]; then
+      vol_count=$(awk '
+        NR>1 && NF>=5 { bt[$4]++; total++ }
+        END {
+          if (total==0) { print "0"; exit }
+          out=""
+          for (k in bt) out = out (out?", ":"") k ": " bt[k]
+          printf "%d (%s)\n", total, out
+        }
+      ' "$pure_vol_file")
+    fi
+    if [[ -f "$pure_snap_file" ]]; then
+      snap_count=$(awk 'NR>1 && NF>=3 {c++} END {print c+0}' "$pure_snap_file")
+    fi
+  else
+    if [[ -f "$vol_list" ]]; then
+      vol_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$vol_list")
+    fi
+    if [[ -f "$snap_list" ]]; then
+      snap_count=$(awk 'NR>1 && NF>0 {c++} END {print c+0}' "$snap_list")
+    fi
   fi
 
   # HA=1 volume count: data volumes only (excludes proxy / direct-access volumes)
@@ -1823,17 +1895,35 @@ generate_cluster_overview() {
     fi
   fi
 
-  # Store Backend Version (StoreV2 is opted-in via -T px-storev2 in
-  # the portworx.io/misc-args annotation on the StorageCluster)
-  local store_version="StoreV1" misc_args=""
-  if [[ -f "$stc" ]]; then
-    misc_args=$(awk '
-      /^    annotations:/ {flag=1; next}
-      flag && /^    [a-zA-Z]/ {flag=0; exit}
-      flag && /^      portworx\.io\/misc-args:/ {sub(/.*misc-args:[[:space:]]*/,""); gsub(/^"|"$/,""); print; exit}
-    ' "$stc")
-    if [[ "$misc_args" == *px-storev2* ]]; then
-      store_version="StoreV2"
+  # Storage Backend
+  # PXE: StoreV1 vs StoreV2 (StoreV2 is opted-in via -T px-storev2 in the
+  #      portworx.io/misc-args annotation on the StorageCluster)
+  # PXCSI: FlashArrays / FlashBlades (or both) from px-pure-secret_masked.yaml
+  local store_version="$NA" misc_args=""
+  if [[ "$mode" == "PXCSI" ]]; then
+    if [[ -f "$pure_secret" ]]; then
+      store_version=$(awk '
+        /"FlashArrays"[[:space:]]*:/ { fa = ($0 ~ /\[[[:space:]]*\]/ ? "empty" : "present") }
+        /"FlashBlades"[[:space:]]*:/ { fb = ($0 ~ /\[[[:space:]]*\]/ ? "empty" : "present") }
+        END {
+          out=""
+          if (fa=="present") out="FlashArrays"
+          if (fb=="present") out=(out ? out", FlashBlades" : "FlashBlades")
+          print (out ? out : "N/A")
+        }
+      ' "$pure_secret")
+    fi
+  elif [[ "$mode" == "PXE" ]]; then
+    store_version="StoreV1"
+    if [[ -f "$stc" ]]; then
+      misc_args=$(awk '
+        /^    annotations:/ {flag=1; next}
+        flag && /^    [a-zA-Z]/ {flag=0; exit}
+        flag && /^      portworx\.io\/misc-args:/ {sub(/.*misc-args:[[:space:]]*/,""); gsub(/^"|"$/,""); print; exit}
+      ' "$stc")
+      if [[ "$misc_args" == *px-storev2* ]]; then
+        store_version="StoreV2"
+      fi
     fi
   fi
 
@@ -1911,13 +2001,19 @@ generate_cluster_overview() {
 
   # ---- Health Check variables ----
 
-  # PX pods: any not-ready or non-Running pods
-  local px_pods_file="$output_dir/portworx/workloads/px_pods.txt"
+  # Pods health: any not-ready or non-Running pods (excluding Completed jobs).
+
+  local px_pods_file
+  if [[ "$mode" == "PXB" ]]; then
+    px_pods_file="$output_dir/px_backup/pxb_pods.txt"
+  else
+    px_pods_file="$output_dir/portworx/workloads/px_pods.txt"
+  fi
   local unhealthy_pods=()
   if [[ -f "$px_pods_file" ]]; then
     while IFS= read -r line; do
       [[ -n "$line" ]] && unhealthy_pods+=("$line")
-    done < <(awk 'NR>1 && NF>0 {
+    done < <(awk 'NR>1 && NF>0 && $3 != "Completed" {
       split($2, r, "/")
       if (r[1] != r[2] || $3 != "Running") printf "%-45s READY=%-7s STATUS=%s\n", $1, $2, $3
     }' "$px_pods_file")
@@ -2026,7 +2122,6 @@ generate_cluster_overview() {
     ' "$stc")
   fi
 
-  # Section header helper – ASCII only, fixed 66-char width
   # Usage: _sec "Section Name"  → "-- SECTION NAME --...--"
 
 
@@ -2053,109 +2148,164 @@ generate_cluster_overview() {
     printf "Diag Bundle:         %s\n" "$(basename "$output_dir")"
     printf "Generator Version:   %s\n" "$SCRIPT_VERSION"
 
-    _sec "Cluster Identity"
-    printf "Cluster ID:          %s\n" "${cluster_id:-$NA}"
-    printf "Cluster UUID:        %s\n" "${cluster_uuid:-$NA}"
-    printf "License:             %s\n" "${license_status:-$NA}"
-    [[ "$custom_registry" != "$NA" ]] && \
-      printf "Image Registry:      Internal (%s)\n" "$custom_registry"
+    # Cluster Identity (skipped for PXB)
+    if [[ "$mode" != "PXB" ]]; then
+      _sec "Cluster Identity"
+      printf "Cluster ID:          %s\n" "${cluster_id:-$NA}"
+      printf "Cluster UUID:        %s\n" "${cluster_uuid:-$NA}"
+      printf "License:             %s\n" "${license_status:-$NA}"
+      [[ "$custom_registry" != "$NA" ]] && \
+        printf "Image Registry:      Internal (%s)\n" "$custom_registry"
+    fi
 
     _sec "Versions"
-    printf "PX Version:          %s\n" "${px_version:-$NA}"
-    printf "Operator Version:    %s\n" "${operator_version:-$NA}"
-    printf "Stork Version:       %s\n" "${stork_version:-$NA}"
-    printf "Autopilot Version:   %s\n" "${autopilot_version:-$NA}"
+    if [[ "$mode" == "PXB" ]]; then
+      printf "PXB Version:         %s\n" "${pxb_version:-$NA}"
+    else
+      printf "PX Version:          %s\n" "${px_version:-$NA}"
+    fi
+    if [[ "$mode" != "PXB" ]]; then
+      printf "Operator Version:    %s\n" "${operator_version:-$NA}"
+    fi
+
+    if [[ "$mode" == "PXE" ]]; then
+      printf "Stork Version:       %s\n" "${stork_version:-$NA}"
+      printf "Autopilot Version:   %s\n" "${autopilot_version:-$NA}"
+    elif [[ "$mode" == "PXB" && -n "$stork_version" ]]; then
+      printf "Stork Version:       %s\n" "$stork_version"
+    fi
+    
     printf "K8s Version:         %s\n" "${k8s_version:-$NA}"
     printf "K8s Distro:          %s\n" "$k8s_distro"
 
-    _sec "StorageCluster Status"
-    printf "Phase:               %s\n" "${stc_phase:-$NA}"
-    printf "Runtime State:       %s\n" "${stc_runtime:-$NA}"
-    if [[ -n "$stc_last_msg" && -n "$stc_last_time" ]]; then
-      printf "Last Condition:      %s (%s)\n" "$stc_last_msg" "$stc_last_time"
-    else
-      printf "Last Condition:      %s\n" "${stc_last_msg:-$NA}"
+    # StorageCluster Status (skipped for PXB)
+    if [[ "$mode" != "PXB" ]]; then
+      _sec "StorageCluster Status"
+      printf "Phase:               %s\n" "${stc_phase:-$NA}"
+      printf "Runtime State:       %s\n" "${stc_runtime:-$NA}"
+      if [[ -n "$stc_last_msg" && -n "$stc_last_time" ]]; then
+        printf "Last Condition:      %s (%s)\n" "$stc_last_msg" "$stc_last_time"
+      else
+        printf "Last Condition:      %s\n" "${stc_last_msg:-$NA}"
+      fi
     fi
 
     _sec "Nodes"
     printf "Total k8s Nodes:     %s\n" "$k8s_nodes_total"
-    printf "Unhealthy Nodes:     %s\n" "$k8s_nodes_unhealthy"
-    printf "Portworx Nodes:      %s\n" "${storage_nodes:-$NA}"
-    printf "Worker OS:           %s\n" "${worker_os:-$NA}"
-    printf "Worker Kernel:       %s\n" "${worker_kernel:-$NA}"
+    printf "Unhealthy k8s Nodes: %s\n" "$k8s_nodes_unhealthy"
+    
+    if [[ "$mode" != "PXB" ]]; then
+      printf "Portworx Nodes:      %s\n" "${storage_nodes:-$NA}"
+    fi
 
-    _sec "Storage"
-    printf "Storage Type:        %s\n" "$storage_type"
-    printf "Cloud Provider:      %s\n" "$cloud_provider"
-    printf "Storage Backend:     %s\n" "$store_version"
-    printf "Total PX Volumes:    %s\n" "$vol_count"
-    printf "Total PX Snapshots:  %s\n" "$snap_count"
+    if [[ "$mode" == "PXE" ]]; then
+      printf "Worker OS:           %s\n" "${worker_os:-$NA}"
+      printf "Worker Kernel:       %s\n" "${worker_kernel:-$NA}"
+    fi
+
+    # Storage section (skipped entirely for PXB)
+    if [[ "$mode" == "PXE" ]]; then
+      _sec "Storage"
+      printf "Storage Type:        %s\n" "$storage_type"
+      printf "Cloud Provider:      %s\n" "$cloud_provider"
+      printf "Storage Backend:     %s\n" "$store_version"
+      printf "Total PX Volumes:    %s\n" "$vol_count"
+      printf "Total PX Snapshots:  %s\n" "$snap_count"
+    elif [[ "$mode" == "PXCSI" ]]; then
+      _sec "Storage"
+      printf "Storage Backend:     %s\n" "$store_version"
+      printf "Total PX Volumes:    %s\n" "$vol_count"
+      printf "Total PX Snapshots:  %s\n" "$snap_count"
+    fi
 
     _sec "Features"
-    printf "Telemetry:           %s\n" "$telemetry"
-    printf "KVDB TLS:            %s\n" "$kvdb_tls"
-    printf "PX Security:         %s\n" "$px_security"
-    printf "Autopilot:           %s\n" "$autopilot_enabled"
-    printf "Stork Webhook:       %s\n" "$stork_webhook"
+    if [[ "$mode" == "PXE" ]]; then
+      printf "Telemetry:           %s\n" "$telemetry"
+      printf "KVDB TLS:            %s\n" "$kvdb_tls"
+      printf "PX Security:         %s\n" "$px_security"
+      printf "Autopilot:           %s\n" "$autopilot_enabled"
+      printf "Stork Webhook:       %s\n" "$stork_webhook"
+    elif [[ "$mode" == "PXCSI" ]]; then
+      printf "Telemetry:           %s\n" "$telemetry"
+    fi
     printf "Airgapped:           %s\n" "$airgapped"
 
+    # Health Checks (per-check mode gating). Pxctl-derived checks (cluster state,
+    # PDB, KVDB members, kernel, HA-1) apply to PXE only. PXB and PXCSI omit
+    # StorageCluster-based Update Strategy is suppressed for PXB.
     _sec "Health Checks"
-    # PX Cluster State (node Status + StorageStatus from pxctl_status.txt)
-    if [[ ${#cluster_node_issues[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   All nodes Online\n" "PX Cluster State:"
-    else
-      printf "%-22s [WARN] Node(s) in unexpected state:\n" "PX Cluster State:"
-      for _n in "${cluster_node_issues[@]}"; do printf "  - %s\n" "$_n"; done
+    # PX Cluster State (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ ${#cluster_node_issues[@]} -eq 0 ]]; then
+        printf "%-22s [OK]   All nodes Online\n" "PX Cluster State:"
+      else
+        printf "%-22s [WARN] Node(s) in unexpected state:\n" "PX Cluster State:"
+        for _n in "${cluster_node_issues[@]}"; do printf "  - %s\n" "$_n"; done
+      fi
     fi
-    # PX Pods
+    # Pods (label differs per mode)
+    local _pods_label="PX Pods:"
+    [[ "$mode" == "PXB" ]] && _pods_label="PXB Pods:"
     if [[ ${#unhealthy_pods[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   All pods healthy\n" "PX Pods:"
+      printf "%-22s [OK]   All pods healthy\n" "$_pods_label"
     else
-      printf "%-22s [WARN] Unhealthy pods detected:\n" "PX Pods:"
+      printf "%-22s [WARN] Unhealthy pods detected:\n" "$_pods_label"
       for _p in "${unhealthy_pods[@]}"; do printf "  - %s\n" "$_p"; done
     fi
-    # Disruption budget (PDB check for px-kvdb and px-storage)
-    if [[ ${#pdb_issues[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   px-kvdb and px-storage disruptions allowed\n" "Disruption Budget:"
-    else
-      printf "%-22s [WARN] Zero disruptions allowed:\n" "Disruption Budget:"
-      for _i in "${pdb_issues[@]}"; do printf "  - %s\n" "$_i"; done
+    # Disruption Budget (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ ${#pdb_issues[@]} -eq 0 ]]; then
+        printf "%-22s [OK]   px-kvdb and px-storage disruptions allowed\n" "Disruption Budget:"
+      else
+        printf "%-22s [WARN] Zero disruptions allowed:\n" "Disruption Budget:"
+        for _i in "${pdb_issues[@]}"; do printf "  - %s\n" "$_i"; done
+      fi
     fi
-    # KVDB members: flag if any unhealthy OR fewer than 3 members
-    if [[ ${#unhealthy_kvdb[@]} -eq 0 && "$kvdb_member_count" -ge 3 ]]; then
-      printf "%-22s [OK]   All %d members healthy\n" "KVDB Members:" "$kvdb_member_count"
-    else
-      printf "%-22s [WARN] Issues detected:\n" "KVDB Members:"
-      [[ "$kvdb_member_count" -lt 3 ]] && \
-        printf "  - Only %d member(s) found (expected >= 3)\n" "$kvdb_member_count"
-      for _m in "${unhealthy_kvdb[@]}"; do printf "  - %s\n" "$_m"; done
+    # KVDB Members (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ ${#unhealthy_kvdb[@]} -eq 0 && "$kvdb_member_count" -ge 3 ]]; then
+        printf "%-22s [OK]   All %d members healthy\n" "KVDB Members:" "$kvdb_member_count"
+      else
+        printf "%-22s [WARN] Issues detected:\n" "KVDB Members:"
+        [[ "$kvdb_member_count" -lt 3 ]] && \
+          printf "  - Only %d member(s) found (expected >= 3)\n" "$kvdb_member_count"
+        for _m in "${unhealthy_kvdb[@]}"; do printf "  - %s\n" "$_m"; done
+      fi
     fi
-    # Kernel version consistency
-    if [[ "$mixed_kernels" == "Yes" ]]; then
-      printf "%-22s [WARN] Mixed kernel versions across PX nodes:\n" "Kernel Versions:"
-      while IFS= read -r _k; do [[ -n "$_k" ]] && printf "  - %s\n" "$_k"; done <<< "$kernel_list"
-    else
-      _single_kernel=$(echo "$kernel_list" | head -1)
-      printf "%-22s [OK]   Consistent (%s)\n" "Kernel Versions:" "${_single_kernel:-$NA}"
+    # Kernel Versions (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ "$mixed_kernels" == "Yes" ]]; then
+        printf "%-22s [WARN] Mixed kernel versions across PX nodes:\n" "Kernel Versions:"
+        while IFS= read -r _k; do [[ -n "$_k" ]] && printf "  - %s\n" "$_k"; done <<< "$kernel_list"
+      else
+        _single_kernel=$(echo "$kernel_list" | head -1)
+        printf "%-22s [OK]   Consistent (%s)\n" "Kernel Versions:" "${_single_kernel:-$NA}"
+      fi
     fi
-    # HA=1 volumes (non-proxy / non-direct-access)
-    if [[ "$ha1_vol_count" -gt 0 ]]; then
-      printf "%-22s [WARN] %d volume(s) with HA=1 (single replica) detected\n" "HA-1 Volumes:" "$ha1_vol_count"
-    else
-      printf "%-22s [OK]   No single-replica volumes\n" "HA-1 Volumes:"
+    # HA-1 Volumes (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      if [[ "$ha1_vol_count" -gt 0 ]]; then
+        printf "%-22s [WARN] %d volume(s) with HA=1 (single replica) detected\n" "HA-1 Volumes:" "$ha1_vol_count"
+      else
+        printf "%-22s [OK]   No single-replica volumes\n" "HA-1 Volumes:"
+      fi
     fi
-    # Pending PX PVCs
-    if [[ ${#px_pvc_pending[@]} -eq 0 ]]; then
-      printf "%-22s [OK]   None\n" "Pending PX PVCs:"
-    else
-      printf "%-22s [WARN] PX-backed PVCs stuck in Pending:\n" "Pending PX PVCs:"
-      for _pvc in "${px_pvc_pending[@]}"; do printf "  - %s\n" "$_pvc"; done
+    # Pending PX PVCs (PXE + PXCSI; not PXB)
+    if [[ "$mode" != "PXB" ]]; then
+      if [[ ${#px_pvc_pending[@]} -eq 0 ]]; then
+        printf "%-22s [OK]   None\n" "Pending PX PVCs:"
+      else
+        printf "%-22s [WARN] PX-backed PVCs stuck in Pending:\n" "Pending PX PVCs:"
+        for _pvc in "${px_pvc_pending[@]}"; do printf "  - %s\n" "$_pvc"; done
+      fi
     fi
-    # Update Strategy
-    if [[ "$update_strategy_type" == "RollingUpdate" ]]; then
-      printf "%-22s [OK]   RollingUpdate\n" "Update Strategy:"
-    else
-      printf "%-22s [WARN] Expected RollingUpdate, found: %s\n" "Update Strategy:" "${update_strategy_type:-$NA}"
+    # Update Strategy (StorageCluster-based; PXE + PXCSI only)
+    if [[ "$mode" != "PXB" ]]; then
+      if [[ "$update_strategy_type" == "RollingUpdate" ]]; then
+        printf "%-22s [OK]   RollingUpdate\n" "Update Strategy:"
+      else
+        printf "%-22s [WARN] Expected RollingUpdate, found: %s\n" "Update Strategy:" "${update_strategy_type:-$NA}"
+      fi
     fi
     echo
     echo "================================================================"
@@ -2188,13 +2338,8 @@ else
   print_progress 11
   extract_storkctl_op
 fi
-
-if [[ "$option" == "PX" && "$PXCSIV3" != "true" ]]; then
   print_progress 12
   generate_cluster_overview
-else
-  print_progress 12 skip
-fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
 log_info "Extraction is completed"
