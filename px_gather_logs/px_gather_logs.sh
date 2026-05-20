@@ -1440,10 +1440,15 @@ if [[ "$option" == "PX" && "$PXCSIV3" != "true" ]]; then
   pxctl_status_file="${output_dir}/portworx/pxctl_out/pxctl_status.json"
   coord_node=$(get_coordinator_node "$pxctl_status_file")
   if [[ -n "$coord_node" && "$coord_node" != "null" ]]; then
-    coord_pod=$($cli get pods -n "$namespace" -l name=portworx --field-selector spec.nodeName="$coord_node" -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    if [[ -n "$coord_pod" ]] && ! is_container_creating "$namespace" "$coord_pod"; then
-      mkdir -p "${output_dir}/logs/portworx"
-      $cli logs -n "$namespace" "$coord_pod" --tail -1 --all-containers > "${output_dir}/logs/portworx/coordinator_${coord_node}.log"
+    existing_log="${output_dir}/logs/portworx/${coord_node}.log"
+    coord_log="${output_dir}/logs/portworx/coordinator_${coord_node}.log"
+    if [[ -s "$existing_log" ]]; then
+      mv "$existing_log" "$coord_log"
+    else
+      coord_pod=$($cli get pods -n "$namespace" -l name=portworx --field-selector spec.nodeName="$coord_node" -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+      if [[ -n "$coord_pod" ]] && ! is_container_creating "$namespace" "$coord_pod"; then
+        $cli logs -n "$namespace" "$coord_pod" --tail -1 --all-containers > "$coord_log"
+      fi
     fi
   fi
 fi
