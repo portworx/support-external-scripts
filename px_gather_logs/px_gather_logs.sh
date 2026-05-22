@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.5.5"
+SCRIPT_VERSION="26.5.6"
 
 
 # Function to display usage
@@ -237,14 +237,17 @@ fi
 validate_and_derive_k8s_cli
 
 
-# Prompt for option if not provided
+# Default option to PX if not provided
 if [[ -z "$option" ]]; then
-  read -p "Choose an option (PX/PXB) (Enter PX for Portworx Enterprise/CSI, Enter PXB for PX Backup): " option
-  option=$(echo "$option" | tr '[:lower:]' '[:upper:]')
-  if [[ "$option" != "PX" && "$option" != "PXB" ]]; then
-    echo "Error: Invalid option. Choose either 'PX' or 'PXB'."
-    exit 1
-  fi
+  option="PX"
+  option_defaulted=true
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): -o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+fi
+
+# Validate option value
+if [[ "$option" != "PX" && "$option" != "PXB" ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid option '$option'. Choose either 'PX' or 'PXB'."
+  exit 1
 fi
 
 
@@ -1256,6 +1259,9 @@ log_info "k8s Cluster Name: $cluster_name"
 log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
+if [[ "$option_defaulted" == "true" ]]; then
+  log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+fi
 log_info "Security Enabled: ${sec_enabled:-false}"
 log_info "Max px pod logs gather limited to: ${max_pods_logs:-NotSet}"
 log_info "Extraction Started"
