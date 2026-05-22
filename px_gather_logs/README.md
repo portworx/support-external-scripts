@@ -41,10 +41,10 @@ px_gather_logs.sh -o PXB
 ```
 
 ### Without Parameters
-If no parameters are passed, the script will prompt for input.
+If no parameters are passed, the script will set the option as **PX**.
 ````bash
 ./px_gather_logs.sh 
-Choose an option (PX/PXB) (Enter PX for Portworx Enterprise/CSI, Enter PXB for PX Backup): PX
+2026-05-22 01:39:31: -o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags
 ````
 
 ### Execute Using Curl
