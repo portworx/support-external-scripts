@@ -237,11 +237,26 @@ fi
 validate_and_derive_k8s_cli
 
 
-# Default option to PX if not provided
+# Default option to PX if not provided (with 10-second timed prompt)
 if [[ -z "$option" ]]; then
-  option="PX"
-  option_defaulted=true
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): -o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): -o option not passed. Pass -o PXB if you are looking to extract PXB diags."
+  printf "\033[33m%s: 10 seconds remaining...\033[0m\n" "$(date '+%Y-%m-%d %H:%M:%S')"
+  printf "%s: Enter PX or PXB (default: PX, press Enter to accept default): " "$(date '+%Y-%m-%d %H:%M:%S')"
+  option_input=""
+  for ((i=9; i>=1; i--)); do
+    if read -t 1 option_input; then
+      break
+    fi
+    printf "\0337\033[A\r\033[K\033[33m%s: %2d seconds remaining...\033[0m\0338" "$(date '+%Y-%m-%d %H:%M:%S')" "$i"
+  done
+  printf "\n"
+  if [[ -z "$option_input" ]]; then
+    option="PX"
+    option_defaulted=true
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): No option input received, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+  else
+    option=$(echo "$option_input" | tr '[:lower:]' '[:upper:]')
+  fi
 fi
 
 # Validate option value
