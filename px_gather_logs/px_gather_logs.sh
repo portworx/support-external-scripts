@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.5.4"
+SCRIPT_VERSION="26.5.6"
 
 
 # Function to display usage
@@ -66,6 +66,62 @@ is_container_creating() {
     local pod_status
     pod_status=$($cli get pod -n "$ns" "$pod" --no-headers 2>/dev/null | awk '{print $3}')
     [[ "$pod_status" == "ContainerCreating" ]]
+}
+
+# Resolve coordinator node name from pxctl_status.json (lowest StorageSpecs[*].NID).
+# Uses jq when available; otherwise falls back to awk.
+get_coordinator_node() {
+    local status_file=$1
+    [[ -s "$status_file" ]] || return 1
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -r '
+            (.daemoninfo.StorageSpecs | to_entries | min_by(.value.NID) | .key) as $uid |
+            .cluster.Nodes[] | select(.Id == $uid) | .SchedulerNodeName
+        ' "$status_file" 2>/dev/null
+        return 0
+    fi
+
+    local uid
+    uid=$(awk '
+        /"StorageSpecs":[[:space:]]*\{/ { in_specs=1; next }
+        in_specs && /^  "[^"]+":[[:space:]]*[\{\[]/ { in_specs=0 }
+        in_specs && /^   "[0-9a-fA-F-]{36}":[[:space:]]*\{/ {
+            match($0, /"[0-9a-fA-F-]{36}"/)
+            cur_uuid = substr($0, RSTART+1, RLENGTH-2)
+            next
+        }
+        in_specs && cur_uuid != "" && /^    "NID":[[:space:]]*[0-9]+/ {
+            match($0, /[0-9]+/)
+            nid = substr($0, RSTART, RLENGTH) + 0
+            if (best_uuid == "" || nid < best_nid) { best_nid = nid; best_uuid = cur_uuid }
+            cur_uuid = ""
+        }
+        END { print best_uuid }
+    ' "$status_file")
+    [[ -n "$uid" ]] || return 1
+
+    awk -v uid="$uid" '
+        /"Nodes":[[:space:]]*\[/ { in_nodes=1; next }
+        in_nodes && /^  \]/ { exit }
+        in_nodes && /^   \{/ { cur_id=""; cur_name=""; next }
+        in_nodes && /^   \},?/ {
+            if (cur_id == uid) { print cur_name; exit }
+            next
+        }
+        in_nodes && cur_id == "" && /"Id":[[:space:]]*"/ {
+            match($0, /"Id":[[:space:]]*"[^"]+"/)
+            s = substr($0, RSTART, RLENGTH)
+            sub(/^"Id":[[:space:]]*"/, "", s); sub(/"$/, "", s)
+            cur_id = s
+        }
+        in_nodes && cur_name == "" && /"SchedulerNodeName":[[:space:]]*"/ {
+            match($0, /"SchedulerNodeName":[[:space:]]*"[^"]*"/)
+            s = substr($0, RSTART, RLENGTH)
+            sub(/^"SchedulerNodeName":[[:space:]]*"/, "", s); sub(/"$/, "", s)
+            cur_name = s
+        }
+    ' "$status_file"
 }
 
 
@@ -181,14 +237,17 @@ fi
 validate_and_derive_k8s_cli
 
 
-# Prompt for option if not provided
+# Default option to PX if not provided
 if [[ -z "$option" ]]; then
-  read -p "Choose an option (PX/PXB) (Enter PX for Portworx Enterprise/CSI, Enter PXB for PX Backup): " option
-  option=$(echo "$option" | tr '[:lower:]' '[:upper:]')
-  if [[ "$option" != "PX" && "$option" != "PXB" ]]; then
-    echo "Error: Invalid option. Choose either 'PX' or 'PXB'."
-    exit 1
-  fi
+  option="PX"
+  option_defaulted=true
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): -o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+fi
+
+# Validate option value
+if [[ "$option" != "PX" && "$option" != "PXB" ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid option '$option'. Choose either 'PX' or 'PXB'."
+  exit 1
 fi
 
 
@@ -1200,6 +1259,9 @@ log_info "k8s Cluster Name: $cluster_name"
 log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
+if [[ "$option_defaulted" == "true" ]]; then
+  log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+fi
 log_info "Security Enabled: ${sec_enabled:-false}"
 log_info "Max px pod logs gather limited to: ${max_pods_logs:-NotSet}"
 log_info "Extraction Started"
@@ -1379,7 +1441,23 @@ for i in "${!log_labels[@]}"; do
 
 done
 
-
+# Collect coordinator portworx pod logs (PX, non-PXCSIV3)
+if [[ "$option" == "PX" && "$PXCSIV3" != "true" ]]; then
+  pxctl_status_file="${output_dir}/portworx/pxctl_out/pxctl_status.json"
+  coord_node=$(get_coordinator_node "$pxctl_status_file")
+  if [[ -n "$coord_node" && "$coord_node" != "null" ]]; then
+    existing_log="${output_dir}/logs/portworx/${coord_node}.log"
+    coord_log="${output_dir}/logs/portworx/coordinator_${coord_node}.log"
+    if [[ -s "$existing_log" ]]; then
+      mv "$existing_log" "$coord_log"
+    else
+      coord_pod=$($cli get pods -n "$namespace" -l name=portworx --field-selector spec.nodeName="$coord_node" -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+      if [[ -n "$coord_pod" ]] && ! is_container_creating "$namespace" "$coord_pod"; then
+        $cli logs -n "$namespace" "$coord_pod" --tail -1 --all-containers > "$coord_log"
+      fi
+    fi
+  fi
+fi
 
 print_progress 4
 
