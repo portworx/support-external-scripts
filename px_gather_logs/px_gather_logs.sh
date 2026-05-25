@@ -270,7 +270,11 @@ validate_and_derive_option() {
       echo "$(date '+%Y-%m-%d %H:%M:%S'): No interactive terminal available, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
     fi
   fi
-
+  # Normalize PXE/PXCSI to PX
+  if [[ "$option" == "PXE" || "$option" == "PXCSI" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Option '$option' provided, treating it as 'PX'."
+    option="PX"
+  fi
   # Validate option value
   if [[ "$option" != "PX" && "$option" != "PXB" ]]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid option '$option'. Choose either 'PX' or 'PXB'."
