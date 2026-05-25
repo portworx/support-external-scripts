@@ -15,9 +15,9 @@
 #
 # Examples:
 #   For Portworx:
-#       px_gather_logs.sh -n portworx -c kubectl -o PX
+#       px_gather_logs.sh -o PX
 #   For PX Backup:
-#       px_gather_logs.sh -n px-backup -c oc -o PXB
+#       px_gather_logs.sh -o PXB
 #
 # - If no parameters are passed, the script will prompt for mandatory arguments input.
 #
