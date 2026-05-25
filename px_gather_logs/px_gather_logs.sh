@@ -246,7 +246,7 @@ validate_and_derive_option() {
     # terminal is available (e.g., cron), skip the prompt and default to PX.
     if exec 3< /dev/tty 2>/dev/null; then
       printf "\033[33m%s: 10 seconds remaining...\033[0m\n" "$(date '+%Y-%m-%d %H:%M:%S')"
-      printf "%s: Enter PX or PXB (default: PX, press Enter to accept default): " "$(date '+%Y-%m-%d %H:%M:%S')"
+      printf "%s: Enter PX or PXB (default: PX, press Enter to accept default or wait for 10 seconds to automatically default to PX): " "$(date '+%Y-%m-%d %H:%M:%S')"
       local option_input=""
       local i
       for ((i=9; i>=1; i--)); do
