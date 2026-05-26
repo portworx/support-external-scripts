@@ -245,24 +245,35 @@ validate_and_derive_option() {
     # so the prompt must read from the controlling terminal via /dev/tty. If no controlling
     # terminal is available (e.g., cron), skip the prompt and default to PX.
     if exec 3< /dev/tty 2>/dev/null; then
-      printf "\033[33m%s: 10 seconds remaining...\033[0m\n" "$(date '+%Y-%m-%d %H:%M:%S')"
-      printf "%s: Enter PX or PXB (default: PX, press Enter to accept default or wait for 10 seconds to automatically default to PX): " "$(date '+%Y-%m-%d %H:%M:%S')"
       local option_input=""
-      local i
-      for ((i=9; i>=1; i--)); do
-        if read -t 1 -u 3 option_input; then
-          break
+      local prompt_fmt="%s: Enter PX or PXB (default: PX, press Enter to accept default or wait for \033[33m%2d\033[0m seconds to automatically default to PX): %s"
+      local start_ts=$SECONDS
+      local remaining=10
+      local ch entered=false
+      printf "$prompt_fmt" "$(date '+%Y-%m-%d %H:%M:%S')" "$remaining" "$option_input"
+      while (( remaining > 0 )); do
+        if IFS= read -rsn1 -t 1 -u 3 ch; then
+          if [[ -z "$ch" ]]; then
+            entered=true
+            break
+          elif [[ "$ch" == $'\x7f' || "$ch" == $'\b' ]]; then
+            option_input="${option_input%?}"
+          else
+            option_input+="$ch"
+          fi
         fi
-        printf "\0337\033[A\r\033[K\033[33m%s: %2d seconds remaining...\033[0m\0338" "$(date '+%Y-%m-%d %H:%M:%S')" "$i"
+        remaining=$(( 10 - (SECONDS - start_ts) ))
+        (( remaining < 0 )) && remaining=0
+        printf "\r\033[K$prompt_fmt" "$(date '+%Y-%m-%d %H:%M:%S')" "$remaining" "$option_input"
       done
       exec 3<&-
       printf "\n"
-      if [[ -z "$option_input" ]]; then
+      if [[ "$entered" == "true" && -n "$option_input" ]]; then
+        option=$(echo "$option_input" | tr '[:lower:]' '[:upper:]')
+      else
         option="PX"
         option_defaulted=true
         echo "$(date '+%Y-%m-%d %H:%M:%S'): No option input received, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
-      else
-        option=$(echo "$option_input" | tr '[:lower:]' '[:upper:]')
       fi
     else
       option="PX"
@@ -270,11 +281,13 @@ validate_and_derive_option() {
       echo "$(date '+%Y-%m-%d %H:%M:%S'): No interactive terminal available, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
     fi
   fi
+
   # Normalize PXE/PXCSI to PX
   if [[ "$option" == "PXE" || "$option" == "PXCSI" ]]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S'): Option '$option' provided, treating it as 'PX'."
     option="PX"
   fi
+
   # Validate option value
   if [[ "$option" != "PX" && "$option" != "PXB" ]]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid option '$option'. Choose either 'PX' or 'PXB'."
