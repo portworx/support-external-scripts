@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.5.6"
+SCRIPT_VERSION="26.6.0"
 
 
 # Function to display usage
@@ -33,6 +33,7 @@ usage() {
   echo "  -c <cli>       : CLI tool to use (oc/kubectl)"
   echo "  -o <option>    : Operation option (PX/PXB)"
   echo "  -d <output_dir>: Output directory for files (optional)"
+  echo "  -m <modules>   : Comma separated module list to extract additional info (supported: cs)"
   exit 1
 }
 # Function to print info in summary file
@@ -50,7 +51,7 @@ print_info() {
 
 print_progress() {
     local current_stage=$1
-    local total_stages="12"
+    local total_stages="13"
     local action=$2
     if [[ "$action" == "skip" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
@@ -126,7 +127,7 @@ get_coordinator_node() {
 
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:l:" opt; do
+while getopts "n:c:o:u:p:d:f:l:m:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -136,9 +137,24 @@ while getopts "n:c:o:u:p:d:f:l:" opt; do
     d) user_output_dir="$OPTARG" ;;
     f) file_prefix="${OPTARG:0:15}_" ;;
     l) max_pods_logs="$OPTARG" ;;
+    m) modules=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     *) usage ;;
   esac
 done
+
+# Parse modules list (comma separated). Supported: cs (cloudsnap)
+module_cs=false
+if [[ -n "$modules" ]]; then
+  IFS=',' read -ra _mod_arr <<< "$modules"
+  for _m in "${_mod_arr[@]}"; do
+    _m=$(echo "$_m" | xargs)
+    case "$_m" in
+      cs) module_cs=true ;;
+      "") ;;
+      *) echo "$(date '+%Y-%m-%d %H:%M:%S'): Warning: Unknown module '$_m' in -m, ignoring." ;;
+    esac
+  done
+fi
 
 # Prompt for namespace if not provided
 #if [[ -z "$namespace" ]]; then
@@ -1377,6 +1393,54 @@ else
   print_progress 2
   extract_pxctl_op
 fi
+
+# Module: cs (cloudsnap) — extract per-cred cloudsnap list output
+extract_module_cs() {
+  local cred_file="$output_dir/portworx/pxctl_out/pxctl_cred_list.txt"
+  if [[ ! -s "$cred_file" ]]; then
+  #  print_info "Module cs: cred list output not found, skipping"
+    return 0
+  fi
+
+  # Parse cred list: skip header lines, collect rows whose first field looks like a UUID.
+  # Column 1: cred UUID, Column 2: cred name.
+  local cred_rows
+  cred_rows=$(awk '$1 ~ /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/ {print $1" "$2}' "$cred_file")
+
+  if [[ -z "$cred_rows" ]]; then
+ #   print_info "Module cs: no cred entries parsed from cred list, skipping"
+    return 0
+  fi
+
+  local cred_count
+  cred_count=$(echo "$cred_rows" | wc -l | tr -d ' ')
+
+  if [[ "$cred_count" -eq 1 ]]; then
+    local cred_name
+    cred_name=$(echo "$cred_rows" | awk '{print $2}')
+    local sanitized="${cred_name//\//_}"
+    local out_file="$output_dir/portworx/pxctl_out/${sanitized}_pxctl_cs_list.txt"
+    if [ "$sec_enabled" == "true" ]; then
+      $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list" > "$out_file" 2>&1
+    else
+      $cli -n $namespace exec service/portworx-service -- bash -c "/opt/pwx/bin/pxctl cs list" > "$out_file" 2>&1
+    fi
+  else
+    while IFS= read -r row; do
+      local cred_id cred_name sanitized out_file
+      cred_id=$(echo "$row" | awk '{print $1}')
+      cred_name=$(echo "$row" | awk '{print $2}')
+      sanitized="${cred_name//\//_}"
+      out_file="$output_dir/portworx/pxctl_out/${sanitized}_pxctl_cs_list.txt"
+      if [ "$sec_enabled" == "true" ]; then
+        $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list --cred-id $cred_id" > "$out_file" 2>&1
+      else
+        $cli -n $namespace exec service/portworx-service -- bash -c "/opt/pwx/bin/pxctl cs list --cred-id $cred_id" > "$out_file" 2>&1
+      fi
+    done <<< "$cred_rows"
+  fi
+}
+
 # Generating Logs
 print_progress 3
 
@@ -2463,7 +2527,19 @@ else
   print_progress 11
   extract_storkctl_op
 fi
-  print_progress 12
+
+
+if [[ "$module_cs" == "true" ]]; then
+  if [[ "$PXCSIV3" == "true" ]]; then
+    print_progress 12 skip
+  else
+    print_progress 12
+    extract_module_cs
+  fi
+else
+  print_progress 12 skip
+fi
+  print_progress 13
   generate_cluster_overview
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
