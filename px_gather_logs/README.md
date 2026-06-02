@@ -38,7 +38,7 @@ px_gather_logs.sh -o PXB
 
 **With optional parameters:**
 ```bash
-px_gather_logs.sh -o PX -n portworx -c oc -f MyCluster -l 10 -d /data/diags
+px_gather_logs.sh -o PX -n portworx -c oc -f MyCluster -d /data/diags
 ```
 
 ### Without Parameters
