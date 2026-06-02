@@ -1,17 +1,21 @@
 # px_gather_logs.sh
 
 ## Description
-Collects logs and other information related to Portworx/PX Backup for issue analysis. This can be executed from any unix-based terminal where we have kubectl/oc command access to the cluster. Script will generate a tarball file in /tmp or user defined folder
+Collects logs and other information related to Portworx/PX Backup for issue analysis.
+
+This can be executed from any Unix-based terminal where `kubectl` or `oc` command access to the cluster is available.
+
+The script generates a compressed tarball (`.tar.gz`) in `/tmp` or a user-defined directory.
 
 ### Mandatory Parameters
 | **Parameter** | **Description**                                                                 | **Example**                          |
 |---------------|---------------------------------------------------------------------------------|--------------------------------------|
-| `-o`          | Option (`PX` for Portworx, `PXB` for PX Backup)                                 | `-o PX`                              |
+| `-o`          | Option (`PX` for Portworx  Enterprise/CSI, `PXB` for PX Backup)                                 | `-o PX`                              |
 
 ### Optional Parameters
 | **Parameter** | **Description**                                                                 | **Example**                          |
 |---------------|---------------------------------------------------------------------------------|--------------------------------------|
-| `-n`          | Portworx/PX backup installed Namespace/PX backup app cluster PVC Namespace      | `-n portworx`                        |
+| `-n`          | Portworx or PX backup installed Namespace/PX backup app cluster PVC Namespace      | `-n portworx`                        |
 | `-c`          | CLI tool to use (e.g., `kubectl` or `oc`)                                       | `-c kubectl`                         |
 | `-u`          | Pure Storage FTPS username for uploading logs                                   | `-u myusername`                      |
 | `-p`          | Pure Storage  FTPS password for uploading logs                                  | `-p mypassword`                      |
@@ -22,37 +26,38 @@ Collects logs and other information related to Portworx/PX Backup for issue anal
 
 ## Usage
 ### Passing Inputs as Parameters
-#### For Portworx:
-```bash
-px_gather_logs.sh -o PX
-```
-Example:
+**For Portworx:**
 ```bash
 px_gather_logs.sh -o PX
 ```
 
-#### For PX Backup:
+**For PX Backup:**
 ```bash
 px_gather_logs.sh -o PXB
 ```
-Example:
+
+**With optional parameters:**
 ```bash
-px_gather_logs.sh -o PXB
+px_gather_logs.sh -o PX -n portworx -c oc -f MyCluster -d /data/diags
 ```
 
 ### Without Parameters
-If no parameters are passed, the script will prompt for input.
-````bash
-./px_gather_logs.sh 
-Choose an option (PX/PXB) (Enter PX for Portworx Enterprise/CSI, Enter PXB for PX Backup): PX
-````
+
+If no parameters are passed, the script will prompt for the `-o` option with a 10-second timeout (defaults to `PX`):
+```bash
+./px_gather_logs.sh
+```
+```
+2026-05-27 10:00:00: -o option not passed. Pass -o PXB if you are looking to extract PXB diags.
+2026-05-27 10:00:00: Enter PX or PXB (default: PX, press Enter to accept default or wait for 10 seconds to automatically default to PX):
+```
 
 ### Execute Using Curl
 You can download and execute the script directly from GitHub using the following command:
 ```bash
 curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -o <PX/PXB>
 ```
-Example:
+**Example:**
 ```bash
 curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -o PX
 ```

@@ -15,15 +15,15 @@
 #
 # Examples:
 #   For Portworx:
-#       px_gather_logs.sh -n portworx -c kubectl -o PX
+#       px_gather_logs.sh -o PX
 #   For PX Backup:
-#       px_gather_logs.sh -n px-backup -c oc -o PXB
+#       px_gather_logs.sh -o PXB
 #
 # - If no parameters are passed, the script will prompt for mandatory arguments input.
 #
 # ================================================================
 
-SCRIPT_VERSION="26.5.5"
+SCRIPT_VERSION="26.5.6"
 
 
 # Function to display usage
@@ -237,15 +237,65 @@ fi
 validate_and_derive_k8s_cli
 
 
-# Prompt for option if not provided
-if [[ -z "$option" ]]; then
-  read -p "Choose an option (PX/PXB) (Enter PX for Portworx Enterprise/CSI, Enter PXB for PX Backup): " option
-  option=$(echo "$option" | tr '[:lower:]' '[:upper:]')
+validate_and_derive_option() {
+  # Default option to PX if not provided (with 10-second timed prompt)
+  if [[ -z "$option" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): -o option not passed. Pass -o PXB if you are looking to extract PXB diags."
+    # When the script is piped (e.g., `curl ... | bash`), stdin is the script content itself,
+    # so the prompt must read from the controlling terminal via /dev/tty. If no controlling
+    # terminal is available (e.g., cron), skip the prompt and default to PX.
+    if exec 3< /dev/tty 2>/dev/null; then
+      local option_input=""
+      local prompt_fmt="%s: Enter PX or PXB (default: PX, press Enter to accept default or wait for \033[33m%2d\033[0m seconds to automatically default to PX): %s"
+      local start_ts=$SECONDS
+      local remaining=10
+      local ch entered=false
+      printf "$prompt_fmt" "$(date '+%Y-%m-%d %H:%M:%S')" "$remaining" "$option_input"
+      while (( remaining > 0 )); do
+        if IFS= read -rsn1 -t 1 -u 3 ch; then
+          if [[ -z "$ch" ]]; then
+            entered=true
+            break
+          elif [[ "$ch" == $'\x7f' || "$ch" == $'\b' ]]; then
+            option_input="${option_input%?}"
+          else
+            option_input+="$ch"
+          fi
+        fi
+        remaining=$(( 10 - (SECONDS - start_ts) ))
+        (( remaining < 0 )) && remaining=0
+        printf "\r\033[K$prompt_fmt" "$(date '+%Y-%m-%d %H:%M:%S')" "$remaining" "$option_input"
+      done
+      exec 3<&-
+      printf "\n"
+      if [[ "$entered" == "true" && -n "$option_input" ]]; then
+        option=$(echo "$option_input" | tr '[:lower:]' '[:upper:]')
+      else
+        option="PX"
+        option_defaulted=true
+        echo "$(date '+%Y-%m-%d %H:%M:%S'): No option input received, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+      fi
+    else
+      option="PX"
+      option_defaulted=true
+      echo "$(date '+%Y-%m-%d %H:%M:%S'): No interactive terminal available, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+    fi
+  fi
+
+  # Normalize PXE/PXCSI to PX
+  if [[ "$option" == "PXE" || "$option" == "PXCSI" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Option '$option' provided, treating it as 'PX'."
+    option="PX"
+  fi
+
+  # Validate option value
   if [[ "$option" != "PX" && "$option" != "PXB" ]]; then
-    echo "Error: Invalid option. Choose either 'PX' or 'PXB'."
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid option '$option'. Choose either 'PX' or 'PXB'."
     exit 1
   fi
-fi
+}
+
+validate_and_derive_option
 
 
 # Normalize input namespace if provided
@@ -634,8 +684,8 @@ if [[ "$option" == "PX" ]]; then
     "backup/applicationrestores.txt"
     "backup/applicationrestores.yaml"
     "backup/applicationrestores_desc.txt"
-    "backup/applicationregistrations.txt"
-    "backup/applicationregistrations.yaml"
+    "migration/applicationregistrations.txt"
+    "migration/applicationregistrations.yaml"
     "backup/backuplocations.txt"
     "backup/backuplocations.yaml"
     "backup/volumesnapshots.txt"
@@ -1256,6 +1306,9 @@ log_info "k8s Cluster Name: $cluster_name"
 log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
+if [[ "$option_defaulted" == "true" ]]; then
+  log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
+fi
 log_info "Security Enabled: ${sec_enabled:-false}"
 log_info "Max px pod logs gather limited to: ${max_pods_logs:-NotSet}"
 log_info "Extraction Started"
