@@ -2297,7 +2297,7 @@ generate_cluster_overview() {
         [[ -n "$line" ]] && px_pvc_pending+=("$line")
       done < <(awk -v px_scs="$px_sc_names" '
         BEGIN { n=split(px_scs, arr, "\n"); for (i=1;i<=n;i++) sc_map[arr[i]]=1 }
-        NR>1 && $3=="Pending" && sc_map[$4] { print $1"/"$2, "("$4")" }
+        NR>1 && $3=="Pending" && sc_map[$4] { print $1"/"$2 }
       ' "$pvc_list_file")
     fi
   fi
@@ -2485,8 +2485,15 @@ generate_cluster_overview() {
       if [[ ${#px_pvc_pending[@]} -eq 0 ]]; then
         printf "%-22s [OK]   None\n" "Pending PX PVCs:"
       else
-        printf "%-22s [WARN] PX-backed PVCs stuck in Pending:\n" "Pending PX PVCs:"
-        for _pvc in "${px_pvc_pending[@]}"; do printf "  - %s\n" "$_pvc"; done
+        local _sample _n=${#px_pvc_pending[@]} _limit=5
+        [[ $_n -lt $_limit ]] && _limit=$_n
+        _sample=$(IFS=,; echo "${px_pvc_pending[*]:0:$_limit}")
+        _sample=${_sample//,/, }
+        if [[ $_n -gt 5 ]]; then
+          printf "%-22s [WARN] %d pending (sample: %s, ...)\n" "Pending PX PVCs:" "$_n" "$_sample"
+        else
+          printf "%-22s [WARN] %d pending: %s\n" "Pending PX PVCs:" "$_n" "$_sample"
+        fi
       fi
     fi
     # Update Strategy (StorageCluster-based; PXE + PXCSI only)
