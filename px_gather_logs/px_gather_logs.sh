@@ -1419,7 +1419,7 @@ extract_module_cs() {
     local cred_name
     cred_name=$(echo "$cred_rows" | awk '{print $2}')
     local sanitized="${cred_name//\//_}"
-    local out_file="$output_dir/portworx/pxctl_out/${sanitized}_pxctl_cs_list.txt"
+    local out_file="$output_dir/portworx/pxctl_out/pxctl_cs_list_${sanitized}.txt"
     if [ "$sec_enabled" == "true" ]; then
       $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list" > "$out_file" 2>&1
     else
@@ -1431,7 +1431,7 @@ extract_module_cs() {
       cred_id=$(echo "$row" | awk '{print $1}')
       cred_name=$(echo "$row" | awk '{print $2}')
       sanitized="${cred_name//\//_}"
-      out_file="$output_dir/portworx/pxctl_out/${sanitized}_pxctl_cs_list.txt"
+      out_file="$output_dir/portworx/pxctl_out/pxctl_cs_list_${sanitized}.txt"
       if [ "$sec_enabled" == "true" ]; then
         $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list --cred-id $cred_id" > "$out_file" 2>&1
       else
