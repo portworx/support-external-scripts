@@ -2282,21 +2282,22 @@ generate_cluster_overview() {
 
   # Pending PVCs backed by a PX StorageClass
   local px_pvc_pending=()
-  local sc_yaml="$output_dir/storage/sc.yaml"
+  local sc_txt="$output_dir/storage/sc.txt"
   local pvc_list_file="$output_dir/storage/pvc_list.txt"
-  if [[ -f "$sc_yaml" && -f "$pvc_list_file" ]]; then
+  if [[ -f "$sc_txt" && -f "$pvc_list_file" ]]; then
     local px_sc_names
     px_sc_names=$(awk '
-      /^- apiVersion:/ || /^apiVersion:/ {name=""}
-      /^  name:/ {name=$2}
-      /^  provisioner:[[:space:]]*(pxd\.portworx\.com|kubernetes\.io\/portworx-volume)/ {if (name) print name}
-    ' "$sc_yaml")
+      NR>1 && ($2=="pxd.portworx.com" || $2=="kubernetes.io/portworx-volume") {
+        name=$1; sub(/\(default\)$/, "", name); print name
+      }
+    ' "$sc_txt")
+    
     if [[ -n "$px_sc_names" ]]; then
       while IFS= read -r line; do
         [[ -n "$line" ]] && px_pvc_pending+=("$line")
       done < <(awk -v px_scs="$px_sc_names" '
         BEGIN { n=split(px_scs, arr, "\n"); for (i=1;i<=n;i++) sc_map[arr[i]]=1 }
-        NR>1 && $3=="Pending" && sc_map[$7] { print $1"/"$2, "("$7")" }
+        NR>1 && $3=="Pending" && sc_map[$4] { print $1"/"$2, "("$4")" }
       ' "$pvc_list_file")
     fi
   fi
