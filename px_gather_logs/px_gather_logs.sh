@@ -1250,8 +1250,6 @@ ocp_common_commands_and_files=(
   "describe scc" "cluster_governance/ocp_scc_describe.txt"
   "get machineconfig -o wide --sort-by=.metadata.creationTimestamp" "cluster_governance/ocp_machineconfig_list.txt"
   "get machineconfigpool -o wide --sort-by=.metadata.creationTimestamp" "cluster_governance/ocp_machineconfigpool_list.txt"
-  "describe machineconfig" "cluster_governance/ocp_machineconfig_desc.txt"
-  "describe machineconfigpool" "cluster_governance/ocp_machineconfigpool_desc.txt"
   )
 
 ocp_px_commands_and_files=(  
