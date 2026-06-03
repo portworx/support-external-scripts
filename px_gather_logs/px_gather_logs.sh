@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.0"
+SCRIPT_VERSION="26.6.2"
 
 
 # Function to display usage
@@ -1322,6 +1322,7 @@ log_info "k8s Cluster Name: $cluster_name"
 log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
+log_info "Modules (-m): ${modules:-none}"
 if [[ "$option_defaulted" == "true" ]]; then
   log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
 fi
