@@ -1928,6 +1928,16 @@ generate_cluster_overview() {
     for f in "$output_dir"/portworx/workloads/portworx-operator-*.yaml; do
       [[ -f "$f" ]] || continue
       operator_version=$(awk '/image: .*px-operator:/ {sub(/.*px-operator:/,""); print; exit}' "$f")
+      # Fallback for older PX Operator in OCP where image is pinned by
+      # digest: derive version from OPERATOR_CONDITION_NAME env var
+      if [[ -z "$operator_version" ]]; then
+        operator_version=$(awk '
+          /name:[[:space:]]*OPERATOR_CONDITION_NAME/ {found=1; next}
+          found && /value:[[:space:]]*portworx-operator\.v/ {
+            sub(/.*portworx-operator\.v/,""); gsub(/["'"'"']/,"")
+            sub(/[[:space:]]+$/,""); print; exit
+          }' "$f")
+      fi
       [[ -n "$operator_version" ]] && break
     done
   fi
