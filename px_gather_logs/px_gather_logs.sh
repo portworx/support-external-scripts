@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.2"
+SCRIPT_VERSION="26.6.3"
 
 
 # Function to display usage
@@ -645,6 +645,10 @@ if [[ "$option" == "PX" ]]; then
     "get storagenodeinitiators -o yaml"
     "get purestoragecluster -n $namespace"
     "get purestoragecluster -n $namespace -o yaml"
+    "get nodedrain -n $namespace"
+    "get nodedrain -n $namespace -o yaml"
+    "get portworxdiags -n $namespace"
+    "get portworxdiags -n $namespace -o yaml"
     
   )
   output_files=(
@@ -757,6 +761,10 @@ if [[ "$option" == "PX" ]]; then
     "portworx/px_csi/storagenodeinitiators.yaml"
     "portworx/px_csi/purestoragecluster.txt"
     "portworx/px_csi/purestoragecluster.yaml"
+    "portworx/nodedrain.txt"
+    "portworx/nodedrain.yaml"
+    "portworx/portworxdiags.txt"
+    "portworx/portworxdiags.yaml"
 
 
   )
@@ -789,6 +797,10 @@ if [[ "$option" == "PX" ]]; then
     "cluster defrag schedule show -j"
     "cluster defrag status"
     "cluster defrag status -j"
+    "kds list"
+    "kds list -j"
+    "sv pool migrate list"
+    "sv pool migrate list -j"
 
   )
   pxctl_output_files=(
@@ -820,6 +832,10 @@ if [[ "$option" == "PX" ]]; then
     "portworx/pxctl_out/pxctl_defrag_schedules.json"
     "portworx/pxctl_out/pxctl_defrag_status.txt"
     "portworx/pxctl_out/pxctl_defrag_status.json"
+    "portworx/pxctl_out/pxctl_kds_list.txt"
+    "portworx/pxctl_out/pxctl_kds_list.json"
+    "portworx/pxctl_out/pxctl_pool_migrate_list.txt"
+    "portworx/pxctl_out/pxctl_pool_migrate_list.json"
     
   )
 
