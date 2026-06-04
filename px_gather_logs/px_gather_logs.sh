@@ -23,7 +23,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.1"
+SCRIPT_VERSION="26.6.2"
 
 
 # Function to display usage
@@ -33,6 +33,7 @@ usage() {
   echo "  -c <cli>       : CLI tool to use (oc/kubectl)"
   echo "  -o <option>    : Operation option (PX/PXB)"
   echo "  -d <output_dir>: Output directory for files (optional)"
+  echo "  -m <modules>   : Comma separated module list to extract additional info (supported: cs)"
   exit 1
 }
 # Function to print info in summary file
@@ -50,7 +51,7 @@ print_info() {
 
 print_progress() {
     local current_stage=$1
-    local total_stages="12"
+    local total_stages="13"
     local action=$2
     if [[ "$action" == "skip" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
@@ -126,7 +127,7 @@ get_coordinator_node() {
 
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:l:" opt; do
+while getopts "n:c:o:u:p:d:f:l:m:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -136,9 +137,24 @@ while getopts "n:c:o:u:p:d:f:l:" opt; do
     d) user_output_dir="$OPTARG" ;;
     f) file_prefix="${OPTARG:0:15}_" ;;
     l) max_pods_logs="$OPTARG" ;;
+    m) modules=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     *) usage ;;
   esac
 done
+
+# Parse modules list (comma separated). Supported: cs (cloudsnap)
+module_cs=false
+if [[ -n "$modules" ]]; then
+  IFS=',' read -ra _mod_arr <<< "$modules"
+  for _m in "${_mod_arr[@]}"; do
+    _m=$(echo "$_m" | xargs)
+    case "$_m" in
+      cs) module_cs=true ;;
+      "") ;;
+      *) echo "$(date '+%Y-%m-%d %H:%M:%S'): Warning: Unknown module '$_m' in -m, ignoring." ;;
+    esac
+  done
+fi
 
 # Prompt for namespace if not provided
 #if [[ -z "$namespace" ]]; then
@@ -1308,6 +1324,7 @@ log_info "k8s Cluster Name: $cluster_name"
 log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
+log_info "Modules (-m): ${modules:-none}"
 if [[ "$option_defaulted" == "true" ]]; then
   log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
 fi
@@ -1379,6 +1396,54 @@ else
   print_progress 2
   extract_pxctl_op
 fi
+
+# Module: cs (cloudsnap) — extract per-cred cloudsnap list output
+extract_module_cs() {
+  local cred_file="$output_dir/portworx/pxctl_out/pxctl_cred_list.txt"
+  if [[ ! -s "$cred_file" ]]; then
+  #  print_info "Module cs: cred list output not found, skipping"
+    return 0
+  fi
+
+  # Parse cred list: skip header lines, collect rows whose first field looks like a UUID.
+  # Column 1: cred UUID, Column 2: cred name.
+  local cred_rows
+  cred_rows=$(awk '$1 ~ /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/ {print $1" "$2}' "$cred_file")
+
+  if [[ -z "$cred_rows" ]]; then
+ #   print_info "Module cs: no cred entries parsed from cred list, skipping"
+    return 0
+  fi
+
+  local cred_count
+  cred_count=$(echo "$cred_rows" | wc -l | tr -d ' ')
+
+  if [[ "$cred_count" -eq 1 ]]; then
+    local cred_name
+    cred_name=$(echo "$cred_rows" | awk '{print $2}')
+    local sanitized="${cred_name//\//_}"
+    local out_file="$output_dir/portworx/pxctl_out/pxctl_cs_list_${sanitized}.txt"
+    if [ "$sec_enabled" == "true" ]; then
+      $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list" > "$out_file" 2>&1
+    else
+      $cli -n $namespace exec service/portworx-service -- bash -c "/opt/pwx/bin/pxctl cs list" > "$out_file" 2>&1
+    fi
+  else
+    while IFS= read -r row; do
+      local cred_id cred_name sanitized out_file
+      cred_id=$(echo "$row" | awk '{print $1}')
+      cred_name=$(echo "$row" | awk '{print $2}')
+      sanitized="${cred_name//\//_}"
+      out_file="$output_dir/portworx/pxctl_out/pxctl_cs_list_${sanitized}.txt"
+      if [ "$sec_enabled" == "true" ]; then
+        $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list --cred-id $cred_id" > "$out_file" 2>&1
+      else
+        $cli -n $namespace exec service/portworx-service -- bash -c "/opt/pwx/bin/pxctl cs list --cred-id $cred_id" > "$out_file" 2>&1
+      fi
+    done <<< "$cred_rows"
+  fi
+}
+
 # Generating Logs
 print_progress 3
 
@@ -2220,21 +2285,22 @@ generate_cluster_overview() {
 
   # Pending PVCs backed by a PX StorageClass
   local px_pvc_pending=()
-  local sc_yaml="$output_dir/storage/sc.yaml"
+  local sc_txt="$output_dir/storage/sc.txt"
   local pvc_list_file="$output_dir/storage/pvc_list.txt"
-  if [[ -f "$sc_yaml" && -f "$pvc_list_file" ]]; then
+  if [[ -f "$sc_txt" && -f "$pvc_list_file" ]]; then
     local px_sc_names
     px_sc_names=$(awk '
-      /^- apiVersion:/ || /^apiVersion:/ {name=""}
-      /^  name:/ {name=$2}
-      /^  provisioner:[[:space:]]*(pxd\.portworx\.com|kubernetes\.io\/portworx-volume)/ {if (name) print name}
-    ' "$sc_yaml")
+      NR>1 && ($2=="pxd.portworx.com" || $2=="kubernetes.io/portworx-volume") {
+        name=$1; sub(/\(default\)$/, "", name); print name
+      }
+    ' "$sc_txt")
+    
     if [[ -n "$px_sc_names" ]]; then
       while IFS= read -r line; do
         [[ -n "$line" ]] && px_pvc_pending+=("$line")
       done < <(awk -v px_scs="$px_sc_names" '
         BEGIN { n=split(px_scs, arr, "\n"); for (i=1;i<=n;i++) sc_map[arr[i]]=1 }
-        NR>1 && $3=="Pending" && sc_map[$7] { print $1"/"$2, "("$7")" }
+        NR>1 && $3=="Pending" && sc_map[$4] { print $1"/"$2 }
       ' "$pvc_list_file")
     fi
   fi
@@ -2422,8 +2488,15 @@ generate_cluster_overview() {
       if [[ ${#px_pvc_pending[@]} -eq 0 ]]; then
         printf "%-22s [OK]   None\n" "Pending PX PVCs:"
       else
-        printf "%-22s [WARN] PX-backed PVCs stuck in Pending:\n" "Pending PX PVCs:"
-        for _pvc in "${px_pvc_pending[@]}"; do printf "  - %s\n" "$_pvc"; done
+        local _sample _n=${#px_pvc_pending[@]} _limit=5
+        [[ $_n -lt $_limit ]] && _limit=$_n
+        _sample=$(IFS=,; echo "${px_pvc_pending[*]:0:$_limit}")
+        _sample=${_sample//,/, }
+        if [[ $_n -gt 5 ]]; then
+          printf "%-22s [WARN] %d pending (sample: %s, ...)\n" "Pending PX PVCs:" "$_n" "$_sample"
+        else
+          printf "%-22s [WARN] %d pending: %s\n" "Pending PX PVCs:" "$_n" "$_sample"
+        fi
       fi
     fi
     # Update Strategy (StorageCluster-based; PXE + PXCSI only)
@@ -2465,7 +2538,19 @@ else
   print_progress 11
   extract_storkctl_op
 fi
-  print_progress 12
+
+
+if [[ "$module_cs" == "true" ]]; then
+  if [[ "$PXCSIV3" == "true" ]]; then
+    print_progress 12 skip
+  else
+    print_progress 12
+    extract_module_cs
+  fi
+else
+  print_progress 12 skip
+fi
+  print_progress 13
   generate_cluster_overview
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"

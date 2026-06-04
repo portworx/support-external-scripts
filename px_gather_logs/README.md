@@ -21,7 +21,7 @@ The script generates a compressed tarball (`.tar.gz`) in `/tmp` or a user-define
 | `-p`          | Pure Storage  FTPS password for uploading logs                                  | `-p mypassword`                      |
 | `-d`          | Custom output directory for storing logs                                        | `-d /path/to/output`                 |
 | `-f`          | File Name Prefix for diag bundle                                                | `-f PROD_Cluster1`                   |
-
+| `-m`          | Comma-separated module list to extract additional info (supported: `cs` = cloudsnap) | `-m cs`           
 
 
 ## Usage
