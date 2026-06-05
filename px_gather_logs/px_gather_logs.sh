@@ -1517,12 +1517,19 @@ extract_node_host_diags() {
     is_ocp=true
   fi
 
+  # For non-OCP we exec into the PX pod on the target node 
   local px_pod_label=""
+  local px_pod_container=""
+  local px_nsenter=""
   if ! $is_ocp; then
     if [[ "$PXCSIV3" == "true" ]]; then
       px_pod_label="app.kubernetes.io/component=node-plugin"
+      px_pod_container="node-plugin"
+      px_nsenter="nsenter -t 1 -m -u -i -n -p --"
     else
       px_pod_label="name=portworx"
+      px_pod_container="portworx"
+      px_nsenter="nsenter --mount=/host_proc/1/ns/mnt --uts=/host_proc/1/ns/uts --ipc=/host_proc/1/ns/ipc --net=/host_proc/1/ns/net --"
     fi
   fi
 
@@ -1576,7 +1583,8 @@ extract_node_host_diags() {
       if $is_ocp; then
         $cli debug node/"$host" --quiet=true -- chroot /host bash -c "$cmd" > "$out_file" 2>&1
       else
-        $cli exec -n "$namespace" "$pod_name" -- bash -c "$cmd" > "$out_file" 2>&1
+        $cli exec -n "$namespace" "$pod_name" -c "$px_pod_container" -- \
+          $px_nsenter sh -c "$cmd" > "$out_file" 2>&1
       fi
     done
   done
