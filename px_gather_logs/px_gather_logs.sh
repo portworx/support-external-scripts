@@ -1562,9 +1562,11 @@ extract_node_host_diags() {
         --field-selector spec.nodeName="$host" \
         -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
       if [[ -z "$pod_name" ]]; then
-        print_info "Error: No PX pod (label '$px_pod_label') found on node '$host'. Cannot collect host diags. Exiting."
-        log_info "Node host diags: no PX pod on '$host', terminating"
-        exit 1
+        printf "\033[33m%s: Warning: No PX pod (label '%s') found on node '%s'. Node-level diags will not be generated for this node.\033[0m\n" \
+          "$(date '+%Y-%m-%d %H:%M:%S')" "$px_pod_label" "$host"
+        log_info "Node host diags: no PX pod on '$host', skipped"
+        rmdir "$host_dir" 2>/dev/null
+        continue
       fi
     fi
 
