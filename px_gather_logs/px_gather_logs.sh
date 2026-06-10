@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.3"
+SCRIPT_VERSION="26.6.4"
 
 
 # Function to display usage
@@ -388,6 +388,14 @@ validate_and_derive_namespace
 validate_hosts() {
   [[ -n "$hosts" ]] || return 0
 
+  # -h/-j only apply to PX. Ignore (and warn) when passed with PXB.
+  if [[ "$option" == "PXB" ]]; then
+    printf "\033[33m%s: Warning: -h and -j are not applicable for PXB. Ignoring host-level diag collection.\033[0m\n" \
+      "$(date '+%Y-%m-%d %H:%M:%S')"
+    hosts=""
+    return 0
+  fi
+
   local invalid=()
   IFS=',' read -ra _host_arr <<< "$hosts"
   for raw_host in "${_host_arr[@]}"; do
@@ -425,6 +433,10 @@ echo "$(date '+%Y-%m-%d %H:%M:%S'): k8s Cluster Name: $cluster_name"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace: $namespace"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): CLI tool: $cli"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): option: $option"
+if [[ -n "$hosts" ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Hosts (-h): $hosts"
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Journal period (-j): $journal_period"
+fi
 
 # Added function to check if its PX CSI V3 (version higher than 25.8.0)
 
@@ -1384,6 +1396,10 @@ log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
 log_info "Modules (-m): ${modules:-none}"
+if [[ -n "$hosts" ]]; then
+  log_info "Hosts (-h): $hosts"
+  log_info "Journal period (-j): $journal_period"
+fi
 if [[ "$option_defaulted" == "true" ]]; then
   log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
 fi
@@ -1533,25 +1549,25 @@ extract_node_host_diags() {
     fi
   fi
 
-  local host_commands=(
-    "lsblk"
-    "blkid"
-    "multipath -ll"
-    "dmesg -T"
-    "mount"
-    "cat /etc/multipath.conf"
-    "journalctl -a --no-pager --since \"$journal_since\""
-    "cat /etc/iscsi/initiatorname.iscsi"
-  )
-  local host_files=(
-    "lsblk.txt"
-    "blkid.txt"
-    "multipath_ll.txt"
-    "dmesg.txt"
-    "mount.txt"
-    "multipath.conf"
-    "journalctl.txt"
-    "iscsi_initiatorname.txt"
+  # Host command array
+  local host_commands_and_files=(
+    "lsblk" "lsblk.txt"
+    "blkid -c /dev/null" "blkid.txt"
+    "multipath -ll" "multipath_ll.txt"
+    "dmesg -T" "dmesg.txt"
+    "mount" "mount.txt"
+    "cat /etc/multipath.conf" "multipath.conf"
+    "journalctl -a --no-pager --since \"$journal_since\"" "all_journalctl.txt"
+    "cat /etc/iscsi/initiatorname.iscsi" "iscsi_initiatorname.txt"
+    "top -bn1 -w 512" "top.txt"
+    "free -h" "free.txt"
+    "cat /proc/meminfo" "meminfo.txt"
+    "lscpu" "lscpu.txt"
+    "cat /proc/cpuinfo" "cpuinfo.txt"
+    "uptime" "uptime.txt"
+    "uname -a" "uname.txt"
+    "date" "date.txt"
+    "ls -lR /dev/disk" "device_list.txt"
   )
 
   IFS=',' read -ra _host_arr <<< "$hosts"
@@ -1577,9 +1593,9 @@ extract_node_host_diags() {
       fi
     fi
 
-    for j in "${!host_commands[@]}"; do
-      local cmd="${host_commands[$j]}"
-      local out_file="$host_dir/${host_files[$j]}"
+    for (( j=0; j<${#host_commands_and_files[@]}; j+=2 )); do
+      local cmd="${host_commands_and_files[j]}"
+      local out_file="$host_dir/${host_commands_and_files[j+1]}"
       if $is_ocp; then
         $cli debug node/"$host" --quiet=true -- chroot /host bash -c "$cmd" > "$out_file" 2>&1
       else
