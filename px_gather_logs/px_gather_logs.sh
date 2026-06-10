@@ -12,8 +12,8 @@
 #   -u <pure ftps username>  : Pure Storage FTPS username for uploading logs
 #   -p <pure ftps password>  : Pure Storage FTPS password for uploading logs
 #   -d <output_dir>: Custom output directory for storing diags
-#   -h <hosts>     : Comma-separated list of node/host names to collect host-level diags (lsblk, blkid, multipath, dmesg, mount, /etc/multipath.conf, journalctl)
-#   -j <period>    : journalctl lookback period for -h. Format: <N>d or <N>h (e.g. 2d, 12h). Default: 2d
+#   -w <worker_hosts>     : Comma-separated list of woker node/host names to collect host-level diags
+#   -j <period>    : journalctl lookback period for -w. Format: <N>d or <N>h (e.g. 2d, 12h). Default: 2d
 #
 # Examples:
 #   For Portworx:
@@ -30,14 +30,14 @@ SCRIPT_VERSION="26.6.4"
 
 # Function to display usage
 usage() {
-  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>] [-d <output_dir>] [-m <modules>] [-h <hosts>] [-j <period>]"
+  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>] [-d <output_dir>] [-m <modules>] [-w <worker_hosts>] [-j <period>]"
   echo "  -n <namespace> : Kubernetes namespace"
   echo "  -c <cli>       : CLI tool to use (oc/kubectl)"
   echo "  -o <option>    : Operation option (PX/PXB)"
   echo "  -d <output_dir>: Output directory for files (optional)"
   echo "  -m <modules>   : Comma separated module list to extract additional info (supported: cs)"
-  echo "  -h <hosts>     : Comma separated list of node/host names to collect host-level diags"
-  echo "  -j <period>    : journalctl period for -h (e.g. 2d, 12h). Default: 2d"
+  echo "  -w <worker_hosts>     : Comma separated list of node/host names to collect host-level diags"
+  echo "  -j <period>    : journalctl period for -w (e.g. 2d, 12h). Default: 2d"
   exit 1
 }
 # Function to print info in summary file
@@ -131,7 +131,7 @@ get_coordinator_node() {
 
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:l:m:h:j:" opt; do
+while getopts "n:c:o:u:p:d:f:l:m:w:j:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -142,13 +142,20 @@ while getopts "n:c:o:u:p:d:f:l:m:h:j:" opt; do
     f) file_prefix="${OPTARG:0:15}_" ;;
     l) max_pods_logs="$OPTARG" ;;
     m) modules=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
-    h) hosts="$OPTARG" ;;
-    j) journal_period="$OPTARG" ;;
+    w) worker_hosts="$OPTARG" ;;
+    j) journal_period="$OPTARG"; journal_period_passed=true ;;
     *) usage ;;
   esac
 done
 
-# Validate -j journal period (used with -h). Accepts <N>d or <N>h. Default 2d.
+# -j only applies when -w is passed. Warn and reset to default if -j was given without -w.
+if [[ "$journal_period_passed" == "true" && -z "$worker_hosts" ]]; then
+  printf "\033[33m%s: Warning: -j is ignored because -w (worker node list) was not passed. -j only applies when collecting worker-node host diags.\033[0m\n" \
+    "$(date '+%Y-%m-%d %H:%M:%S')"
+  journal_period=""
+fi
+
+# Validate -j journal period (used with -w). Accepts <N>d or <N>h. Default 2d.
 journal_period="${journal_period:-2d}"
 if [[ ! "$journal_period" =~ ^[0-9]+[dhDH]$ ]]; then
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid -j value '$journal_period'. Expected <N>d or <N>h (e.g. 2d, 12h)."
@@ -384,20 +391,20 @@ fi
 
 validate_and_derive_namespace
 
-# Validate -h <hosts> early: every node name must exist in the cluster.
+# Validate -w <worker_hosts> early: every node name must exist in the cluster.
 validate_hosts() {
-  [[ -n "$hosts" ]] || return 0
+  [[ -n "$worker_hosts" ]] || return 0
 
-  # -h/-j only apply to PX. Ignore (and warn) when passed with PXB.
+  # -w/-j only apply to PX. Ignore (and warn) when passed with PXB.
   if [[ "$option" == "PXB" ]]; then
-    printf "\033[33m%s: Warning: -h and -j are not applicable for PXB. Ignoring host-level diag collection.\033[0m\n" \
+    printf "\033[33m%s: Warning: -w and -j are not applicable for PXB. Ignoring host-level diag collection.\033[0m\n" \
       "$(date '+%Y-%m-%d %H:%M:%S')"
-    hosts=""
+    worker_hosts=""
     return 0
   fi
 
   local invalid=()
-  IFS=',' read -ra _host_arr <<< "$hosts"
+  IFS=',' read -ra _host_arr <<< "$worker_hosts"
   for raw_host in "${_host_arr[@]}"; do
     local host
     host=$(echo "$raw_host" | xargs)
@@ -408,7 +415,7 @@ validate_hosts() {
   done
 
   if (( ${#invalid[@]} > 0 )); then
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: The following node name(s) passed to -h do not exist in the cluster: ${invalid[*]}"
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: The following node name(s) passed to -w do not exist in the cluster: ${invalid[*]}"
     echo "$(date '+%Y-%m-%d %H:%M:%S'): Run '$cli get nodes' to list valid node names and retry."
     exit 1
   fi
@@ -433,8 +440,8 @@ echo "$(date '+%Y-%m-%d %H:%M:%S'): k8s Cluster Name: $cluster_name"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace: $namespace"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): CLI tool: $cli"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): option: $option"
-if [[ -n "$hosts" ]]; then
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Hosts (-h): $hosts"
+if [[ -n "$worker_hosts" ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Worker hosts (-w): $worker_hosts"
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Journal period (-j): $journal_period"
 fi
 
@@ -1396,8 +1403,8 @@ log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
 log_info "Modules (-m): ${modules:-none}"
-if [[ -n "$hosts" ]]; then
-  log_info "Hosts (-h): $hosts"
+if [[ -n "$worker_hosts" ]]; then
+  log_info "Worker hosts (-w): $worker_hosts"
   log_info "Journal period (-j): $journal_period"
 fi
 if [[ "$option_defaulted" == "true" ]]; then
@@ -1519,11 +1526,11 @@ extract_module_cs() {
   fi
 }
 
-# Module: host diags (-h) — per-node OS-level commands collected via
+# Module: host diags (-w) — per-node OS-level commands collected via
 # `oc debug node/...` on OpenShift, or `exec` into the PX pod running on the
 # node for non-OCP clusters. Output goes under node_diags/<node>/.
 extract_node_host_diags() {
-  [[ -n "$hosts" ]] || return 0
+  [[ -n "$worker_hosts" ]] || return 0
 
   local node_diags_dir="$output_dir/node_diags"
   mkdir -p "$node_diags_dir"
@@ -1570,7 +1577,7 @@ extract_node_host_diags() {
     "ls -lR /dev/disk" "device_list.txt"
   )
 
-  IFS=',' read -ra _host_arr <<< "$hosts"
+  IFS=',' read -ra _host_arr <<< "$worker_hosts"
   for raw_host in "${_host_arr[@]}"; do
     local host
     host=$(echo "$raw_host" | xargs)
@@ -2723,7 +2730,7 @@ else
   print_progress 12 skip
 fi
 
-if [[ -n "$hosts" ]]; then
+if [[ -n "$worker_hosts" ]]; then
   print_progress 13
   extract_node_host_diags
 else
