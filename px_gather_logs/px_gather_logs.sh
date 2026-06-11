@@ -12,6 +12,8 @@
 #   -u <pure ftps username>  : Pure Storage FTPS username for uploading logs
 #   -p <pure ftps password>  : Pure Storage FTPS password for uploading logs
 #   -d <output_dir>: Custom output directory for storing diags
+#   -w <worker_hosts>     : Comma-separated list of woker node/host names to collect host-level diags
+#   -j <period>    : journalctl lookback period for -w. Format: <N>d or <N>h (e.g. 2d, 12h). Default: 2d
 #
 # Examples:
 #   For Portworx:
@@ -23,17 +25,19 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.3"
+SCRIPT_VERSION="26.6.4"
 
 
 # Function to display usage
 usage() {
-  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>]"
+  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>] [-d <output_dir>] [-m <modules>] [-w <worker_hosts>] [-j <period>]"
   echo "  -n <namespace> : Kubernetes namespace"
   echo "  -c <cli>       : CLI tool to use (oc/kubectl)"
   echo "  -o <option>    : Operation option (PX/PXB)"
   echo "  -d <output_dir>: Output directory for files (optional)"
   echo "  -m <modules>   : Comma separated module list to extract additional info (supported: cs)"
+  echo "  -w <worker_hosts>     : Comma separated list of node/host names to collect host-level diags"
+  echo "  -j <period>    : journalctl period for -w (e.g. 2d, 12h). Default: 2d"
   exit 1
 }
 # Function to print info in summary file
@@ -51,7 +55,7 @@ print_info() {
 
 print_progress() {
     local current_stage=$1
-    local total_stages="13"
+    local total_stages="14"
     local action=$2
     if [[ "$action" == "skip" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
@@ -127,7 +131,7 @@ get_coordinator_node() {
 
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:l:m:" opt; do
+while getopts "n:c:o:u:p:d:f:l:m:w:j:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -138,9 +142,31 @@ while getopts "n:c:o:u:p:d:f:l:m:" opt; do
     f) file_prefix="${OPTARG:0:15}_" ;;
     l) max_pods_logs="$OPTARG" ;;
     m) modules=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
+    w) worker_hosts="$OPTARG" ;;
+    j) journal_period="$OPTARG"; journal_period_passed=true ;;
     *) usage ;;
   esac
 done
+
+# -j only applies when -w is passed. Warn and reset to default if -j was given without -w.
+if [[ "$journal_period_passed" == "true" && -z "$worker_hosts" ]]; then
+  printf "\033[33m%s: Warning: -j is ignored because -w (worker node list) was not passed. -j only applies when collecting worker-node host diags.\033[0m\n" \
+    "$(date '+%Y-%m-%d %H:%M:%S')"
+  journal_period=""
+fi
+
+# Validate -j journal period (used with -w). Accepts <N>d or <N>h. Default 2d.
+journal_period="${journal_period:-2d}"
+if [[ ! "$journal_period" =~ ^[0-9]+[dhDH]$ ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: Invalid -j value '$journal_period'. Expected <N>d or <N>h (e.g. 2d, 12h)."
+  exit 1
+fi
+_jp_num="${journal_period%?}"
+_jp_unit="${journal_period: -1}"
+case "$_jp_unit" in
+  d|D) journal_since="${_jp_num} days ago" ;;
+  h|H) journal_since="${_jp_num} hours ago" ;;
+esac
 
 # Parse modules list (comma separated). Supported: cs (cloudsnap)
 module_cs=false
@@ -365,6 +391,38 @@ fi
 
 validate_and_derive_namespace
 
+# Validate -w <worker_hosts> early: every node name must exist in the cluster.
+validate_hosts() {
+  [[ -n "$worker_hosts" ]] || return 0
+
+  # -w/-j only apply to PX. Ignore (and warn) when passed with PXB.
+  if [[ "$option" == "PXB" ]]; then
+    printf "\033[33m%s: Warning: -w and -j are not applicable for PXB. Ignoring host-level diag collection.\033[0m\n" \
+      "$(date '+%Y-%m-%d %H:%M:%S')"
+    worker_hosts=""
+    return 0
+  fi
+
+  local invalid=()
+  IFS=',' read -ra _host_arr <<< "$worker_hosts"
+  for raw_host in "${_host_arr[@]}"; do
+    local host
+    host=$(echo "$raw_host" | xargs)
+    [[ -n "$host" ]] || continue
+    if ! $cli get node "$host" >/dev/null 2>&1; then
+      invalid+=("$host")
+    fi
+  done
+
+  if (( ${#invalid[@]} > 0 )); then
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Error: The following node name(s) passed to -w do not exist in the cluster: ${invalid[*]}"
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Run '$cli get nodes' to list valid node names and retry."
+    exit 1
+  fi
+}
+
+validate_hosts
+
 # Automatically get Kubernetes cluster name
 
 if $cli get infrastructure cluster &>/dev/null; then
@@ -382,6 +440,10 @@ echo "$(date '+%Y-%m-%d %H:%M:%S'): k8s Cluster Name: $cluster_name"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Namespace: $namespace"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): CLI tool: $cli"
 echo "$(date '+%Y-%m-%d %H:%M:%S'): option: $option"
+if [[ -n "$worker_hosts" ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Worker hosts (-w): $worker_hosts"
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Journal period (-j): $journal_period"
+fi
 
 # Added function to check if its PX CSI V3 (version higher than 25.8.0)
 
@@ -1341,6 +1403,10 @@ log_info "Namespace: $namespace"
 log_info "CLI tool: $cli"
 log_info "option: $option"
 log_info "Modules (-m): ${modules:-none}"
+if [[ -n "$worker_hosts" ]]; then
+  log_info "Worker hosts (-w): $worker_hosts"
+  log_info "Journal period (-j): $journal_period"
+fi
 if [[ "$option_defaulted" == "true" ]]; then
   log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
 fi
@@ -1458,6 +1524,93 @@ extract_module_cs() {
       fi
     done <<< "$cred_rows"
   fi
+}
+
+# Module: host diags (-w) — per-node OS-level commands collected via
+# `oc debug node/...` on OpenShift, or `exec` into the PX pod running on the
+# node for non-OCP clusters. Output goes under node_diags/<node>/.
+extract_node_host_diags() {
+  [[ -n "$worker_hosts" ]] || return 0
+
+  local node_diags_dir="$output_dir/node_diags"
+  mkdir -p "$node_diags_dir"
+
+  local is_ocp=false
+  if $cli api-versions 2>/dev/null | grep -q 'openshift'; then
+    is_ocp=true
+  fi
+
+  # For non-OCP we exec into the PX pod on the target node 
+  local px_pod_label=""
+  local px_pod_container=""
+  local px_nsenter=""
+  if ! $is_ocp; then
+    if [[ "$PXCSIV3" == "true" ]]; then
+      px_pod_label="app.kubernetes.io/component=node-plugin"
+      px_pod_container="node-plugin"
+      px_nsenter="nsenter -t 1 -m -u -i -n -p --"
+    else
+      px_pod_label="name=portworx"
+      px_pod_container="portworx"
+      px_nsenter="nsenter --mount=/host_proc/1/ns/mnt --uts=/host_proc/1/ns/uts --ipc=/host_proc/1/ns/ipc --net=/host_proc/1/ns/net --"
+    fi
+  fi
+
+  # Host command array
+  local host_commands_and_files=(
+    "lsblk" "lsblk.txt"
+    "blkid -c /dev/null" "blkid.txt"
+    "multipath -ll" "multipath_ll.txt"
+    "dmesg -T" "dmesg.txt"
+    "mount" "mount.txt"
+    "cat /etc/multipath.conf" "multipath.conf"
+    "journalctl -a --no-pager --since \"$journal_since\"" "all_journalctl.txt"
+    "cat /etc/iscsi/initiatorname.iscsi" "iscsi_initiatorname.txt"
+    "top -bn1 -w 512" "top.txt"
+    "free -h" "free.txt"
+    "cat /proc/meminfo" "meminfo.txt"
+    "lscpu" "lscpu.txt"
+    "cat /proc/cpuinfo" "cpuinfo.txt"
+    "uptime" "uptime.txt"
+    "uname -a" "uname.txt"
+    "date" "date.txt"
+    "ls -lR /dev/disk" "device_list.txt"
+  )
+
+  IFS=',' read -ra _host_arr <<< "$worker_hosts"
+  for raw_host in "${_host_arr[@]}"; do
+    local host
+    host=$(echo "$raw_host" | xargs)
+    [[ -n "$host" ]] || continue
+
+    local host_dir="$node_diags_dir/$host"
+    mkdir -p "$host_dir"
+
+    local pod_name=""
+    if ! $is_ocp; then
+      pod_name=$($cli get pods -n "$namespace" -l "$px_pod_label" \
+        --field-selector spec.nodeName="$host" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+      if [[ -z "$pod_name" ]]; then
+        printf "\033[33m%s: Warning: No PX pod (label '%s') found on node '%s'. Node-level diags will not be generated for this node.\033[0m\n" \
+          "$(date '+%Y-%m-%d %H:%M:%S')" "$px_pod_label" "$host"
+        log_info "Node host diags: no PX pod on '$host', skipped"
+        rmdir "$host_dir" 2>/dev/null
+        continue
+      fi
+    fi
+
+    for (( j=0; j<${#host_commands_and_files[@]}; j+=2 )); do
+      local cmd="${host_commands_and_files[j]}"
+      local out_file="$host_dir/${host_commands_and_files[j+1]}"
+      if $is_ocp; then
+        $cli debug node/"$host" --quiet=true -- chroot /host bash -c "$cmd" > "$out_file" 2>&1
+      else
+        $cli exec -n "$namespace" "$pod_name" -c "$px_pod_container" -- \
+          $px_nsenter sh -c "$cmd" > "$out_file" 2>&1
+      fi
+    done
+  done
 }
 
 # Generating Logs
@@ -2576,7 +2729,15 @@ if [[ "$module_cs" == "true" ]]; then
 else
   print_progress 12 skip
 fi
+
+if [[ -n "$worker_hosts" ]]; then
   print_progress 13
+  extract_node_host_diags
+else
+  print_progress 13 skip
+fi
+
+  print_progress 14
   generate_cluster_overview
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"

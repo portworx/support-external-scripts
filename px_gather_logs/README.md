@@ -21,7 +21,9 @@ The script generates a compressed tarball (`.tar.gz`) in `/tmp` or a user-define
 | `-p`          | Pure Storage  FTPS password for uploading logs                                  | `-p mypassword`                      |
 | `-d`          | Custom output directory for storing logs                                        | `-d /path/to/output`                 |
 | `-f`          | File Name Prefix for diag bundle                                                | `-f PROD_Cluster1`                   |
-| `-m`          | Comma-separated module list to extract additional info (supported: `cs` = cloudsnap) | `-m cs`           
+| `-m`          | Comma-separated module list to extract additional info (supported: `cs` = cloudsnap) | `-m cs`                              |
+| `-w`          | Comma-separated list of worker node/host names to collect host-level diags | `-w node1,node2`                     |
+| `-j`          | journalctl lookback period for host-level diags. Format: `<N>d` or `<N>h`. Default: `2d`     | `-j 12h`                             |
 
 
 ## Usage
@@ -40,6 +42,12 @@ px_gather_logs.sh -o PXB
 ```bash
 px_gather_logs.sh -o PX -n portworx -c oc -f MyCluster -d /data/diags
 ```
+
+**Collecting host-level diags for specific nodes:**
+```bash
+px_gather_logs.sh -o PX -w worker-01,worker-02
+```
+
 
 ### Without Parameters
 
