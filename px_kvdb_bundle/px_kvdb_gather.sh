@@ -156,4 +156,11 @@ echo "[INFO] Creating tar.gz archive at ${ARCHIVE} ..."
 tar -C /tmp -czf "${ARCHIVE}" "$(basename "${OUTPUT_DIR}")"
 
 echo "[INFO] Completed. Bundle directory: ${OUTPUT_DIR}"
+
+echo
+echo "*******Summary of Keys*********"
+awk -F'/' '{print $1"/"$2"/"$3"/"$4}' ${OUTPUT_DIR}/etcdctl_get_pwx_keys_only.txt | sort | uniq -c
+echo "*******************************"
+
+
 echo "[INFO] Archive created: ${ARCHIVE}"
