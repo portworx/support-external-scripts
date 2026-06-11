@@ -1575,7 +1575,6 @@ extract_node_host_diags() {
     "uname -a" "uname.txt"
     "date" "date.txt"
     "ls -lR /dev/disk" "device_list.txt"
-    "systemctl list-units --type=service all" "systemd_services_list.txt"
     "cat /etc/udev/rules.d/99-pure*" "udev_purearray_rules.txt"
     "dmidecode -t system" "dmidecode_details.txt"
   )
