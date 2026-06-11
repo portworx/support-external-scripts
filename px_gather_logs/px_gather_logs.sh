@@ -1558,7 +1558,7 @@ extract_node_host_diags() {
 
   # Host command array
   local host_commands_and_files=(
-    "lsblk" "lsblk.txt"
+    "lsblk -o +VENDOR,MODEL,LOG-SEC,PHY-SEC" "lsblk.txt"
     "blkid -c /dev/null" "blkid.txt"
     "multipath -ll" "multipath_ll.txt"
     "dmesg -T" "dmesg.txt"
@@ -1575,6 +1575,9 @@ extract_node_host_diags() {
     "uname -a" "uname.txt"
     "date" "date.txt"
     "ls -lR /dev/disk" "device_list.txt"
+    "systemctl list-units --type=service all" "systemd_services_list.txt"
+    "cat /etc/udev/rules.d/99-pure*" "udev_purearray_rules.txt"
+    "dmidecode -t system" "dmidecode_details.txt"
   )
 
   IFS=',' read -ra _host_arr <<< "$worker_hosts"
