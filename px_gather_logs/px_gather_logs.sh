@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.5"
+SCRIPT_VERSION="26.6.6"
 
 
 # Function to display usage
@@ -1558,7 +1558,7 @@ extract_node_host_diags() {
 
   # Host command array
   local host_commands_and_files=(
-    "lsblk -o +VENDOR,MODEL,LOG-SEC,PHY-SEC" "lsblk.txt"
+    "lsblk" "lsblk.txt"
     "blkid -c /dev/null" "blkid.txt"
     "multipath -ll" "multipath_ll.txt"
     "dmesg -T" "dmesg.txt"
@@ -1575,8 +1575,15 @@ extract_node_host_diags() {
     "uname -a" "uname.txt"
     "date" "date.txt"
     "ls -lR /dev/disk" "device_list.txt"
-    "cat /etc/udev/rules.d/99-pure*" "udev_purearray_rules.txt"
-    "dmidecode -t system" "dmidecode_details.txt"
+    "ip -d a" "ip_addr.txt"
+    "ip route show" "ip_route.txt"
+    "ss -neomitau" "ss_sockets.txt"
+    "cat /proc/cmdline" "proc_cmdline.txt"
+    "iscsiadm -m session" "iscsi_session.txt"
+    "iscsiadm -m session -P 3" "iscsi_session_detail.txt"
+    "iscsiadm -m iface -P 1" "iscsi_iface.txt"
+    "dmsetup status" "dmsetup_status.txt"
+    "dmsetup info -c" "dmsetup_info.txt"
   )
 
   IFS=',' read -ra _host_arr <<< "$worker_hosts"
