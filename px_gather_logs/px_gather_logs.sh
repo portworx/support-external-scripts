@@ -1587,6 +1587,8 @@ extract_node_host_diags() {
     "multipathd show paths format \"%w %d %t %i %T %o %z %m\"" "multipath/multipathd_show_paths.txt"
     "multipathd show daemon" "multipath/multipathd_show_daemon.txt"
     "cat /etc/multipath.conf" "multipath/multipath.conf"
+    "for f in /etc/multipath/conf.d/*; do [ -e \"\$f\" ] && echo \"== \$f ==\" && cat \"\$f\"; done" "multipath/multipath_conf_d.txt"
+
     # iscsi
     "cat /etc/iscsi/initiatorname.iscsi" "iscsi/initiatorname.iscsi"
     "cat /etc/iscsi/iscsid.conf" "iscsi/iscsid.conf"
@@ -1595,6 +1597,7 @@ extract_node_host_diags() {
     "iscsiadm -m iface" "iscsi/iface_list.txt"
     "iscsiadm -m iface -P 1" "iscsi/iface_P1.txt"
     "iscsiadm -m node" "iscsi/node_list.txt"
+    "for IF in \$(iscsiadm -m iface 2>/dev/null | awk -F'[ \\t]+' 'NF>=1 && \$1!~\"^iface.iscsi_ifacename\" {print \$1}' | sort -u); do echo \"== \$IF ==\"; iscsiadm -m iface -I \"\$IF\" -o show; done" "iscsi/ifaces_detail.txt"
     # nvme
     "cat /etc/nvme/hostnqn" "nvme/hostnqn"
     "cat /etc/nvme/hostid" "nvme/hostid"
@@ -1604,6 +1607,8 @@ extract_node_host_diags() {
     "nvme show-hostnqn" "nvme/show_hostnqn.txt"
     "ls -la /sys/class/nvme/" "nvme/sys_class_nvme.txt"
     "ls -la /sys/class/nvme-subsystem/" "nvme/sys_class_nvme_subsys.txt"
+    "for s in /sys/class/nvme-subsystem/nvme-subsys*; do [ -d \"\$s\" ] || continue; echo \"== \$s ==\"; for f in subsysnqn model serial nqn iopolicy; do [ -r \"\$s/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$s/\$f\")\"; done; done" "nvme/subsystems.txt"
+    "for c in /sys/class/nvme/nvme*; do [ -d \"\$c\" ] || continue; echo \"== \$c ==\"; for f in transport address state subsysnqn model serial firmware_rev queue_count; do [ -r \"\$c/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$c/\$f\" 2>/dev/null)\"; done; done" "nvme/controllers.txt"
     # fc
     "ls -la /sys/class/fc_host/" "fc/sys_class_fc_host.txt"
     "ls -la /sys/class/fc_remote_ports/" "fc/sys_class_fc_remote_ports.txt"
@@ -1611,6 +1616,10 @@ extract_node_host_diags() {
     "systool -c fc_host -v" "fc/systool_fc_host.txt"
     "systool -c fc_remote_ports -v" "fc/systool_fc_remote_ports.txt"
     "ls -la /dev/disk/by-path/ 2>/dev/null | grep -E 'fc-|nvme-'" "fc/by-path-fc-nvme.txt"
+    "for h in /sys/class/fc_host/host*; do [ -d \"\$h\" ] || continue; printf '%s\\tport_state=%s\\tport_name=%s\\tspeed=%s\\n' \"\$(basename \"\$h\")\" \"\$(cat \"\$h/port_state\" 2>/dev/null)\" \"\$(cat \"\$h/port_name\" 2>/dev/null)\" \"\$(cat \"\$h/speed\" 2>/dev/null)\"; done" "fc/fc_host_summary.txt"
+    "for h in /sys/class/fc_host/host*; do [ -d \"\$h\" ] || continue; echo \"== \$h ==\"; for f in port_name node_name port_state speed supported_speeds symbolic_name port_id fabric_name max_npiv_vports; do [ -r \"\$h/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$h/\$f\" 2>/dev/null)\"; done; done" "fc/hosts.txt"
+    "for p in /sys/class/fc_remote_ports/rport-*; do [ -d \"\$p\" ] || continue; printf '%s\\tport_state=%s\\tport_name=%s\\troles=%s\\n' \"\$(basename \"\$p\")\" \"\$(cat \"\$p/port_state\" 2>/dev/null)\" \"\$(cat \"\$p/port_name\" 2>/dev/null)\" \"\$(cat \"\$p/roles\" 2>/dev/null)\"; done" "fc/fc_remote_ports_summary.txt"
+    "for p in /sys/class/fc_remote_ports/rport-*; do [ -d \"\$p\" ] || continue; echo \"== \$p ==\"; for f in port_name node_name port_state roles port_id scsi_target_id; do [ -r \"\$p/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$p/\$f\" 2>/dev/null)\"; done; done" "fc/remote_ports.txt"
     # logs
     "dmesg -T" "logs/dmesg.txt"
     "journalctl -a --no-pager --since \"$journal_since\"" "logs/all_journalctl.txt"
