@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.6"
+SCRIPT_VERSION="26.6.7"
 
 
 # Function to display usage
@@ -650,8 +650,6 @@ if [[ "$option" == "PX" ]]; then
     "get applicationrestores -A"
     "get applicationrestores -A -o yaml"
     "describe applicationrestores -A"
-    "get applicationregistrations -A"
-    "get applicationregistrations -A -o yaml"
     "get backuplocations -A"
     "get backuplocations -A -o yaml"
     "get volumesnapshots -A"
@@ -766,8 +764,6 @@ if [[ "$option" == "PX" ]]; then
     "backup/applicationrestores.txt"
     "backup/applicationrestores.yaml"
     "backup/applicationrestores_desc.txt"
-    "migration/applicationregistrations.txt"
-    "migration/applicationregistrations.yaml"
     "backup/backuplocations.txt"
     "backup/backuplocations.yaml"
     "backup/volumesnapshots.txt"
@@ -955,6 +951,8 @@ if [[ "$option" == "PX" ]]; then
     "get resourcetransformations -A -o yaml"
     "get actions -A"
     "get actions -A -o yaml"
+    "get applicationregistrations -A"
+    "get applicationregistrations -A -o yaml"
   )
    migration_output=(
     "migration/clusterpair.txt"
@@ -972,6 +970,8 @@ if [[ "$option" == "PX" ]]; then
     "migration/resourcetransformations.yaml"
     "migration/actions.txt"
     "migration/actions.yaml"
+    "migration/applicationregistrations.txt"
+    "migration/applicationregistrations.yaml"
   )
 
    kubevirt_commands=(
@@ -1556,36 +1556,73 @@ extract_node_host_diags() {
     fi
   fi
 
-  # Host command array
+  # Host command array — outputs organized under per-subsystem subdirectories
   local host_commands_and_files=(
-    "lsblk -o +VENDOR,MODEL,LOG-SEC,PHY-SEC" "lsblk.txt"
-    "blkid -c /dev/null" "blkid.txt"
-    "multipath -ll" "multipath_ll.txt"
-    "dmesg -T" "dmesg.txt"
-    "mount" "mount.txt"
-    "cat /etc/multipath.conf" "multipath.conf"
-    "journalctl -a --no-pager --since \"$journal_since\"" "all_journalctl.txt"
-    "cat /etc/iscsi/initiatorname.iscsi" "iscsi_initiatorname.txt"
-    "top -bn1 -w 512" "top.txt"
-    "free -h" "free.txt"
-    "cat /proc/meminfo" "meminfo.txt"
-    "lscpu" "lscpu.txt"
-    "cat /proc/cpuinfo" "cpuinfo.txt"
-    "uptime" "uptime.txt"
-    "uname -a" "uname.txt"
-    "date" "date.txt"
-    "ls -lR /dev/disk" "device_list.txt"
-    "cat /etc/udev/rules.d/99-pure*" "udev_purearray_rules.txt"
-    "dmidecode -t system" "dmidecode_details.txt"
-    "ip -d a" "ip_addr.txt"
-    "ip route show" "ip_route.txt"
-    "ss -neomitau" "ss_sockets.txt"
-    "cat /proc/cmdline" "proc_cmdline.txt"
-    "iscsiadm -m session" "iscsi_session.txt"
-    "iscsiadm -m session -P 3" "iscsi_session_detail.txt"
-    "iscsiadm -m iface -P 1" "iscsi_iface.txt"
-    "dmsetup status" "dmsetup_status.txt"
-    "dmsetup info -c" "dmsetup_info.txt"
+    # system
+    "uname -a" "system/uname.txt"
+    "date" "system/date.txt"
+    "uptime" "system/uptime.txt"
+    "lscpu" "system/lscpu.txt"
+    "cat /proc/cpuinfo" "system/cpuinfo.txt"
+    "cat /proc/meminfo" "system/meminfo.txt"
+    "cat /proc/cmdline" "system/proc_cmdline.txt"
+    "free -h" "system/free.txt"
+    "top -bn1 -w 512" "system/top.txt"
+    "dmidecode -t system" "system/dmidecode_system.txt"
+    # network
+    "ip -d a" "network/ip_addr.txt"
+    "ip route show" "network/ip_route.txt"
+    "ss -neomitau" "network/ss_sockets.txt"
+    # block / device-mapper
+    "lsblk -o +VENDOR,MODEL,LOG-SEC,PHY-SEC" "block/lsblk.txt"
+    "blkid -c /dev/null" "block/blkid.txt"
+    "mount" "block/mount.txt"
+    "ls -lR /dev/disk" "block/device_list.txt"
+    "ls -la /dev/mapper/" "block/dev-mapper.txt"
+    "dmsetup status" "block/dmsetup_status.txt"
+    "dmsetup info -c" "block/dmsetup_info.txt"
+    "cat /etc/udev/rules.d/99-pure*" "block/udev_purearray_rules.txt"
+    # multipath
+    "multipath -ll" "multipath/multipath_ll.txt"
+    "multipathd show paths format \"%w %d %t %i %T %o %z %m\"" "multipath/multipathd_show_paths.txt"
+    "multipathd show daemon" "multipath/multipathd_show_daemon.txt"
+    "cat /etc/multipath.conf" "multipath/multipath.conf"
+    "for f in /etc/multipath/conf.d/*; do [ -e \"\$f\" ] && echo \"== \$f ==\" && cat \"\$f\"; done" "multipath/multipath_conf_d.txt"
+
+    # iscsi
+    "cat /etc/iscsi/initiatorname.iscsi" "iscsi/initiatorname.iscsi"
+    "cat /etc/iscsi/iscsid.conf" "iscsi/iscsid.conf"
+    "iscsiadm -m session" "iscsi/sessions.txt"
+    "iscsiadm -m session -P 3" "iscsi/sessions_P3.txt"
+    "iscsiadm -m iface" "iscsi/iface_list.txt"
+    "iscsiadm -m iface -P 1" "iscsi/iface_P1.txt"
+    "iscsiadm -m node" "iscsi/node_list.txt"
+    "for IF in \$(iscsiadm -m iface 2>/dev/null | awk -F'[ \\t]+' 'NF>=1 && \$1!~\"^iface.iscsi_ifacename\" {print \$1}' | sort -u); do echo \"== \$IF ==\"; iscsiadm -m iface -I \"\$IF\" -o show; done" "iscsi/ifaces_detail.txt"
+    # nvme
+    "cat /etc/nvme/hostnqn" "nvme/hostnqn"
+    "cat /etc/nvme/hostid" "nvme/hostid"
+    "cat /etc/nvme/discovery.conf" "nvme/discovery.conf"
+    "nvme list" "nvme/list.txt"
+    "nvme list-subsys" "nvme/list_subsys.txt"
+    "nvme show-hostnqn" "nvme/show_hostnqn.txt"
+    "ls -la /sys/class/nvme/" "nvme/sys_class_nvme.txt"
+    "ls -la /sys/class/nvme-subsystem/" "nvme/sys_class_nvme_subsys.txt"
+    "for s in /sys/class/nvme-subsystem/nvme-subsys*; do [ -d \"\$s\" ] || continue; echo \"== \$s ==\"; for f in subsysnqn model serial nqn iopolicy; do [ -r \"\$s/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$s/\$f\")\"; done; done" "nvme/subsystems.txt"
+    "for c in /sys/class/nvme/nvme*; do [ -d \"\$c\" ] || continue; echo \"== \$c ==\"; for f in transport address state subsysnqn model serial firmware_rev queue_count; do [ -r \"\$c/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$c/\$f\" 2>/dev/null)\"; done; done" "nvme/controllers.txt"
+    # fc
+    "ls -la /sys/class/fc_host/" "fc/sys_class_fc_host.txt"
+    "ls -la /sys/class/fc_remote_ports/" "fc/sys_class_fc_remote_ports.txt"
+    "ls -la /sys/class/fc_transport/" "fc/sys_class_fc_transport.txt"
+    "systool -c fc_host -v" "fc/systool_fc_host.txt"
+    "systool -c fc_remote_ports -v" "fc/systool_fc_remote_ports.txt"
+    "ls -la /dev/disk/by-path/ 2>/dev/null | grep -E 'fc-|nvme-'" "fc/by-path-fc-nvme.txt"
+    "for h in /sys/class/fc_host/host*; do [ -d \"\$h\" ] || continue; printf '%s\\tport_state=%s\\tport_name=%s\\tspeed=%s\\n' \"\$(basename \"\$h\")\" \"\$(cat \"\$h/port_state\" 2>/dev/null)\" \"\$(cat \"\$h/port_name\" 2>/dev/null)\" \"\$(cat \"\$h/speed\" 2>/dev/null)\"; done" "fc/fc_host_summary.txt"
+    "for h in /sys/class/fc_host/host*; do [ -d \"\$h\" ] || continue; echo \"== \$h ==\"; for f in port_name node_name port_state speed supported_speeds symbolic_name port_id fabric_name max_npiv_vports; do [ -r \"\$h/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$h/\$f\" 2>/dev/null)\"; done; done" "fc/hosts.txt"
+    "for p in /sys/class/fc_remote_ports/rport-*; do [ -d \"\$p\" ] || continue; printf '%s\\tport_state=%s\\tport_name=%s\\troles=%s\\n' \"\$(basename \"\$p\")\" \"\$(cat \"\$p/port_state\" 2>/dev/null)\" \"\$(cat \"\$p/port_name\" 2>/dev/null)\" \"\$(cat \"\$p/roles\" 2>/dev/null)\"; done" "fc/fc_remote_ports_summary.txt"
+    "for p in /sys/class/fc_remote_ports/rport-*; do [ -d \"\$p\" ] || continue; echo \"== \$p ==\"; for f in port_name node_name port_state roles port_id scsi_target_id; do [ -r \"\$p/\$f\" ] && printf '%s=%s\\n' \"\$f\" \"\$(cat \"\$p/\$f\" 2>/dev/null)\"; done; done" "fc/remote_ports.txt"
+    # logs
+    "dmesg -T" "logs/dmesg.txt"
+    "journalctl -a --no-pager --since \"$journal_since\"" "logs/all_journalctl.txt"
   )
 
   IFS=',' read -ra _host_arr <<< "$worker_hosts"
@@ -1614,6 +1651,7 @@ extract_node_host_diags() {
     for (( j=0; j<${#host_commands_and_files[@]}; j+=2 )); do
       local cmd="${host_commands_and_files[j]}"
       local out_file="$host_dir/${host_commands_and_files[j+1]}"
+      mkdir -p "$(dirname "$out_file")"
       if $is_ocp; then
         $cli debug node/"$host" --quiet=true -- chroot /host bash -c "$cmd" > "$out_file" 2>&1
       else
