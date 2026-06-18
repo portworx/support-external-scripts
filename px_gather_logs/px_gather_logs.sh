@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.7"
+SCRIPT_VERSION="26.6.8"
 
 
 # Function to display usage
@@ -566,6 +566,7 @@ if [[ "$option" == "PX" ]]; then
   sub_dir+=(
       "${output_dir}/portworx/workloads"
       "${output_dir}/portworx/px_csi"
+      "${output_dir}/portworx/kvdb_keys"
     )
   
   if [[ "$PXCSIV3" != "true" ]]; then
@@ -834,6 +835,7 @@ if [[ "$option" == "PX" ]]; then
     "cluster options list"
     "cluster options list -j"
     "sv k m"
+    "sv k m -j"
     "alerts show"
     "cloudsnap status"
     "cloudsnap status -j"
@@ -869,6 +871,7 @@ if [[ "$option" == "PX" ]]; then
     "portworx/pxctl_out/pxctl_cluster_options.txt"
     "portworx/pxctl_out/pxctl_cluster_options.json"
     "portworx/pxctl_out/pxctl_kvdb_members.txt"
+    "portworx/pxctl_out/pxctl_kvdb_members.json"
     "portworx/pxctl_out/pxctl_alerts_show.txt"
     "portworx/pxctl_out/pxctl_cs_status.txt"
     "portworx/pxctl_out/pxctl_cs_status.json"
@@ -1358,6 +1361,97 @@ ocp_px_commands_and_files=(
   "get operators -A -o wide" "openshift/oc_operators_list.txt"
   "get operators portworx-certified.portworx -o yaml" "openshift/oc_operators_portworx.yaml"
   )
+
+  pxe_kvdb_keys_stas_export() {
+      # Ensure base_dir is available (default to current dir if output_dir is not set)
+      local base_dir="${output_dir:-.}"
+      local target_dir="$base_dir/portworx/kvdb_keys"
+
+      local pxctl_status="$base_dir/portworx/pxctl_out/pxctl_status.txt"
+      local kvdb_members_json="$base_dir/portworx/pxctl_out/pxctl_kvdb_members.json"
+
+      local cluster_id=""
+      local kvdb_member=""
+      local port=""
+      local ip=""
+      local ENDPOINTS=""
+
+      declare -A NODEID_TO_IP
+
+      # 1. Extract Cluster ID from static status log
+      if [[ -f "$pxctl_status" ]]; then
+          cluster_id=$(awk -F: '/Cluster ID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
+      fi
+
+      # 2. Extract Healthy KVDB Member AND Port from JSON log using AWK exclusively
+      if [[ -f "$kvdb_members_json" ]]; then
+          read -r kvdb_member port <<< "$(awk '
+              /^[[:space:]]*"[a-f0-9\-]{36}":/ {
+                  match($0, /[a-f0-9\-]{36}/);
+                  curr = substr($0, RSTART, RLENGTH);
+              }
+              /"ClientUrls":/ {
+                  getline;
+                  if (match($0, /:[0-9]+/)) {
+                      ports[curr] = substr($0, RSTART+1, RLENGTH-1);
+                  }
+              }
+              /"IsHealthy":[[:space:]]*true/ { healthy[curr] = 1 }
+              /"Leader":[[:space:]]*false/   { leader[curr] = 0 }
+              /"Leader":[[:space:]]*true/    { leader[curr] = 1 }
+              END {
+                  # Look for a healthy follower first
+                  for (u in healthy) {
+                      if (leader[u] == 0 && ports[u]) {
+                          print u, ports[u];
+                          exit;
+                      }
+                  }
+                  # Fall back to a healthy leader if no followers exist
+                  for (u in healthy) {
+                      if (leader[u] == 1 && ports[u]) {
+                          print u, ports[u];
+                          exit;
+                      }
+                  }
+              }
+          ' "$kvdb_members_json")"
+      fi
+
+      if [[ -z "$kvdb_member" || -z "$port" ]]; then
+          echo "[ERROR] Failed to extract a valid KVDB member or port using awk."
+          return 1
+      fi
+
+      # 3. Build Node ID to IP Map using the static status file
+      if [[ -f "$pxctl_status" ]]; then
+          while read -r status_ip node_id _; do
+              [[ -z "${status_ip}" || -z "${node_id}" ]] && continue
+              NODEID_TO_IP["${node_id}"]="${status_ip}"
+          done < <(awk '$1 ~ /^[0-9.]+$/ && $2 ~ /-/ {print $1, $2}' "$pxctl_status")
+      fi
+
+      # 4. Resolve the IP target
+      ip="${NODEID_TO_IP[${kvdb_member}]:-}"
+      if [[ -z "${ip}" ]]; then
+          echo "[ERROR] No IP mapping found in pxctl status for member-id ${kvdb_member}."
+          return 1
+      fi
+
+      ENDPOINTS="http://${ip}:${port}"
+
+      # Define common prefix for exec commands to improve readability
+      local exec_cmd=($cli -n "$namespace" exec service/portworx-service -- /opt/pwx/oci/rootfs/usr/local/bin/etcdctl --endpoints="${ENDPOINTS}")
+
+      "${exec_cmd[@]}" member list > "$target_dir/etcdctl_kvdb_member_list.txt" 2>&1 || true
+      "${exec_cmd[@]}" endpoint health --write-out=table > "$target_dir/etcdctl_kvdb_member_health.txt" 2>&1 || true
+      "${exec_cmd[@]}" get --keys-only --prefix "" > "$target_dir/etcdctl_kvdb_keys_only.txt" 2>&1 || true
+      "${exec_cmd[@]}" get --prefix "pwx/${cluster_id}/cluster/database" > "$target_dir/etcdctl_kvdb_clusterdb.txt" 2>&1 || true
+      "${exec_cmd[@]}" get --prefix "pwx/${cluster_id}/storage/cloudsnap" > "$target_dir/etcdctl_kvdb_cloudsnap.txt" 2>&1 || true
+      "${exec_cmd[@]}" get --prefix "pwx/${cluster_id}/storage/cloudsnap/v2.deletes" > "$target_dir/etcdctl_kvdb_v2deletes.txt" 2>&1 || true
+
+      awk -F'/' '{print $1"/"$2"/"$3"/"$4}' $target_dir/etcdctl_kvdb_keys_only.txt | sort | uniq -c > "$target_dir/kvdb_keys_statistics_summary.txt" 2>&1 || true
+  }
 
 pxb_mongo_export() {
   DB_PASS=$($cli -n "$namespace" get secret pxc-backup-mongodb --template='{{index .data "mongodb-root-password" | base64decode}}')
@@ -2765,6 +2859,7 @@ else
   extract_migration_op
   print_progress 11
   extract_storkctl_op
+  pxe_kvdb_keys_stas_export
 fi
 
 
