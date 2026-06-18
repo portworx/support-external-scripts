@@ -650,8 +650,6 @@ if [[ "$option" == "PX" ]]; then
     "get applicationrestores -A"
     "get applicationrestores -A -o yaml"
     "describe applicationrestores -A"
-    "get applicationregistrations -A"
-    "get applicationregistrations -A -o yaml"
     "get backuplocations -A"
     "get backuplocations -A -o yaml"
     "get volumesnapshots -A"
@@ -766,8 +764,6 @@ if [[ "$option" == "PX" ]]; then
     "backup/applicationrestores.txt"
     "backup/applicationrestores.yaml"
     "backup/applicationrestores_desc.txt"
-    "migration/applicationregistrations.txt"
-    "migration/applicationregistrations.yaml"
     "backup/backuplocations.txt"
     "backup/backuplocations.yaml"
     "backup/volumesnapshots.txt"
@@ -955,6 +951,8 @@ if [[ "$option" == "PX" ]]; then
     "get resourcetransformations -A -o yaml"
     "get actions -A"
     "get actions -A -o yaml"
+    "get applicationregistrations -A"
+    "get applicationregistrations -A -o yaml"
   )
    migration_output=(
     "migration/clusterpair.txt"
@@ -972,6 +970,8 @@ if [[ "$option" == "PX" ]]; then
     "migration/resourcetransformations.yaml"
     "migration/actions.txt"
     "migration/actions.yaml"
+    "migration/applicationregistrations.txt"
+    "migration/applicationregistrations.yaml"
   )
 
    kubevirt_commands=(
