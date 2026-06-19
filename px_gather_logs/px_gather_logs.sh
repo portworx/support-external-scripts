@@ -596,6 +596,8 @@ if [[ "$option" == "PX" ]]; then
 #  admin_ns=$($cli -n $namespace get stc -o jsonpath='{.items[*].spec.stork.args.admin-namespace}')
 #  admin_ns="${admin_ns:-kube-system}"
   sec_enabled=$($cli -n $namespace get stc -o=jsonpath='{.items[*].spec.security.enabled}')
+  kvdb_tls_enabled=$($cli -n $namespace get stc -o=jsonpath='{.items[*].spec.kvdb.enableTLS}')
+
 
 
   commands=(
@@ -2880,7 +2882,7 @@ else
   print_progress 13 skip
 fi
 
-if [[ "$option" == "PX"  && "$kvdb_tls" != "Enabled" ]]; then
+if [[ "$option" == "PX"  && "$kvdb_tls_enabled" != "true" ]]; then
   print_progress 14
   pxe_kvdb_keys_stats_export
 else
