@@ -2882,7 +2882,7 @@ else
   print_progress 13 skip
 fi
 
-if [[ "$option" == "PX"  && "$kvdb_tls_enabled" != "true" ]]; then
+if [[ "$option" == "PX"  && "$kvdb_tls_enabled" == "true" ]]; then
   print_progress 14
   pxe_kvdb_keys_stats_export
 else
