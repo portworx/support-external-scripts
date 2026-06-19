@@ -55,7 +55,7 @@ print_info() {
 
 print_progress() {
     local current_stage=$1
-    local total_stages="14"
+    local total_stages="15"
     local action=$2
     if [[ "$action" == "skip" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
@@ -1419,7 +1419,7 @@ ocp_px_commands_and_files=(
       fi
 
       if [[ -z "$kvdb_member" || -z "$port" ]]; then
-          echo "[ERROR] Failed to extract a valid KVDB member or port using awk."
+          echo "$(date '+%Y-%m-%d %H:%M:%S'): [ERROR] Failed to extract a valid KVDB member or port using awk for KVDB keys colection. Skipping..." >> $summary_file
           return 1
       fi
 
