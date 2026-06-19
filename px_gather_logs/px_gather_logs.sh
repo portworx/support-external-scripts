@@ -1362,7 +1362,7 @@ ocp_px_commands_and_files=(
   "get operators portworx-certified.portworx -o yaml" "openshift/oc_operators_portworx.yaml"
   )
 
-  pxe_kvdb_keys_stas_export() {
+  pxe_kvdb_keys_stats_export() {
       # Ensure base_dir is available (default to current dir if output_dir is not set)
       local base_dir="${output_dir:-.}"
       local target_dir="$base_dir/portworx/kvdb_keys"
@@ -2859,7 +2859,6 @@ else
   extract_migration_op
   print_progress 11
   extract_storkctl_op
-  pxe_kvdb_keys_stas_export
 fi
 
 
@@ -2881,7 +2880,14 @@ else
   print_progress 13 skip
 fi
 
+if [[ "$option" == "PX"  && "$kvdb_tls" != "Enabled" ]]; then
   print_progress 14
+  pxe_kvdb_keys_stats_export
+else
+  print_progress 14 skip
+fi
+
+  print_progress 15
   generate_cluster_overview
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
