@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.8"
+SCRIPT_VERSION="26.6.9"
 
 
 # Function to display usage
@@ -595,8 +595,7 @@ setup_output_dirs
 if [[ "$option" == "PX" ]]; then
 #  admin_ns=$($cli -n $namespace get stc -o jsonpath='{.items[*].spec.stork.args.admin-namespace}')
 #  admin_ns="${admin_ns:-kube-system}"
-  sec_enabled=$($cli -n $namespace get stc -o=jsonpath='{.items[*].spec.security.enabled}')
-  kvdb_tls_enabled=$($cli -n $namespace get stc -o=jsonpath='{.items[*].spec.kvdb.enableTLS}')
+  IFS='|' read -r sec_enabled kvdb_tls_enabled autopilot_enabled_flag telemetry_enabled_flag < <($cli -n $namespace get stc -o=jsonpath='{.items[*].spec.security.enabled}|{.items[*].spec.kvdb.enableTLS}|{.items[*].spec.autopilot.enabled}|{.items[*].spec.monitoring.telemetry.enabled}')
 
 
 
@@ -1378,8 +1377,6 @@ ocp_px_commands_and_files=(
       local ip=""
       local ENDPOINTS=""
 
-      declare -A NODEID_TO_IP
-
       # 1. Extract Cluster ID from static status log
       if [[ -f "$pxctl_status" ]]; then
           cluster_id=$(awk -F: '/Cluster ID:/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' "$pxctl_status")
@@ -1425,16 +1422,10 @@ ocp_px_commands_and_files=(
           return 1
       fi
 
-      # 3. Build Node ID to IP Map using the static status file
+      # 3. Resolve the IP for the chosen KVDB member directly from pxctl status
       if [[ -f "$pxctl_status" ]]; then
-          while read -r status_ip node_id _; do
-              [[ -z "${status_ip}" || -z "${node_id}" ]] && continue
-              NODEID_TO_IP["${node_id}"]="${status_ip}"
-          done < <(awk '$1 ~ /^[0-9.]+$/ && $2 ~ /-/ {print $1, $2}' "$pxctl_status")
+          ip=$(awk -v want="$kvdb_member" '$1 ~ /^[0-9.]+$/ && $2 == want {print $1; exit}' "$pxctl_status")
       fi
-
-      # 4. Resolve the IP target
-      ip="${NODEID_TO_IP[${kvdb_member}]:-}"
       if [[ -z "${ip}" ]]; then
           echo "[ERROR] No IP mapping found in pxctl status for member-id ${kvdb_member}."
           return 1
@@ -2381,19 +2372,12 @@ generate_cluster_overview() {
     ha1_vol_count=$(awk 'NR>1 && NF>0 && $5=="1" && $8=="no" {c++} END {print c+0}' "$vol_list")
   fi
 
-  # Telemetry
-  local telemetry_raw="" telemetry="$NA"
-  if [[ -f "$stc" ]]; then
-    telemetry_raw=$(awk '
-      /^      telemetry:/ {flag=1; next}
-      flag && /^      [a-zA-Z]/ {flag=0}
-      flag && /^        enabled:/ {print $2; exit}
-    ' "$stc")
-    case "$telemetry_raw" in
-      true)  telemetry="Enabled"  ;;
-      *) telemetry="Disabled" ;;
-    esac
-  fi
+  # Telemetry (reuse value derived earlier from stc)
+  local telemetry
+  case "$telemetry_enabled_flag" in
+    true) telemetry="Enabled"  ;;
+    *)    telemetry="Disabled" ;;
+  esac
 
   # Storage Type and Cloud Provider
   local storage_type="$NA" cloud_provider="$NA"
@@ -2443,47 +2427,26 @@ generate_cluster_overview() {
     fi
   fi
 
-  # KVDB TLS
-  local kvdb_tls="$NA" _raw=""
-  if [[ -f "$stc" ]]; then
-    _raw=$(awk '
-      /^    kvdb:/ {flag=1; next}
-      flag && /^    [a-zA-Z]/ {flag=0; exit}
-      flag && /^      enableTLS:/ {sub(/.*enableTLS:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
-    ' "$stc")
-    case "$_raw" in
-      true)  kvdb_tls="Enabled"  ;;
-      *) kvdb_tls="Disabled" ;;
-    esac
-  fi
+  # KVDB TLS (reuse value derived earlier from stc)
+  local kvdb_tls _raw=""
+  case "$kvdb_tls_enabled" in
+    true) kvdb_tls="Enabled"  ;;
+    *)    kvdb_tls="Disabled" ;;
+  esac
 
-  # PX Security
-  local px_security="Disabled"
-  if [[ -f "$stc" ]]; then
-    _raw=$(awk '
-      /^    security:/ {flag=1; next}
-      flag && /^    [a-zA-Z]/ {flag=0; exit}
-      flag && /^      enabled:/ {sub(/.*enabled:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
-    ' "$stc")
-    case "$_raw" in
-      true)  px_security="Enabled"  ;;
-      *) px_security="Disabled" ;;
-    esac
-  fi
+  # PX Security (reuse value derived earlier from stc)
+  local px_security
+  case "$sec_enabled" in
+    true) px_security="Enabled"  ;;
+    *)    px_security="Disabled" ;;
+  esac
 
-  # Autopilot enabled flag
-  local autopilot_enabled="$NA"
-  if [[ -f "$stc" ]]; then
-    _raw=$(awk '
-      /^    autopilot:/ {flag=1; next}
-      flag && /^    [a-zA-Z]/ {flag=0; exit}
-      flag && /^      enabled:/ {sub(/.*enabled:[[:space:]]*/,""); sub(/[[:space:]]+$/,""); print; exit}
-    ' "$stc")
-    case "$_raw" in
-      true)  autopilot_enabled="Enabled"  ;;
-      *) autopilot_enabled="Disabled" ;;
-    esac
-  fi
+  # Autopilot enabled flag (reuse value derived earlier from stc)
+  local autopilot_enabled
+  case "$autopilot_enabled_flag" in
+    true) autopilot_enabled="Enabled"  ;;
+    *)    autopilot_enabled="Disabled" ;;
+  esac
 
   # Stork webhook-controller arg
   local stork_webhook="$NA"
@@ -2622,8 +2585,8 @@ generate_cluster_overview() {
     if [[ -n "$px_sc_names" ]]; then
       while IFS= read -r line; do
         [[ -n "$line" ]] && px_pvc_pending+=("$line")
-      done < <(awk -v px_scs="$px_sc_names" '
-        BEGIN { n=split(px_scs, arr, "\n"); for (i=1;i<=n;i++) sc_map[arr[i]]=1 }
+      done < <(awk -v px_scs="$(printf '%s' "$px_sc_names" | tr '\n' ',')" '
+        BEGIN { n=split(px_scs, arr, ","); for (i=1;i<=n;i++) if (arr[i] != "") sc_map[arr[i]]=1 }
         NR>1 && $3=="Pending" && sc_map[$4] { print $1"/"$2 }
       ' "$pvc_list_file")
     fi
