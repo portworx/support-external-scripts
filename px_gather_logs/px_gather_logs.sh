@@ -920,6 +920,7 @@ if [[ "$option" == "PX" ]]; then
     "role=realtime-metrics-collector"
     "app.kubernetes.io/instance=cert-manager"
     "name=px-pre-flight"
+    "app.kubernetes.io/name=px-cache-agent"
     
   )
 
