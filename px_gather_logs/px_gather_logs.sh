@@ -1657,6 +1657,8 @@ extract_node_host_diags() {
     "free -h" "system/free.txt"
     "top -bn1 -w 512" "system/top.txt"
     "dmidecode -t system" "system/dmidecode_system.txt"
+    "cat /proc/filesystems" "system/filesystems.txt"
+    "lsmod" "system/lsmod.txt"
     # network
     "ip -d a" "network/ip_addr.txt"
     "ip route show" "network/ip_route.txt"
