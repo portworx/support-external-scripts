@@ -1348,7 +1348,10 @@ ocp_common_commands_and_files=(
   "get scc -o yaml" "cluster_governance/ocp_scc.yaml"
   "describe scc" "cluster_governance/ocp_scc_describe.txt"
   "get machineconfig -o wide --sort-by=.metadata.creationTimestamp" "cluster_governance/ocp_machineconfig_list.txt"
+  "get machineconfig -o yaml" "cluster_governance/ocp_machineconfig.yaml"
   "get machineconfigpool -o wide --sort-by=.metadata.creationTimestamp" "cluster_governance/ocp_machineconfigpool_list.txt"
+  "get machineconfigpool -o yaml" "cluster_governance/ocp_machineconfigpool.yaml"
+
   )
 
 ocp_px_commands_and_files=(  
