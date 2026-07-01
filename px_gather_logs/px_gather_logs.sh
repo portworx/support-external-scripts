@@ -2614,7 +2614,7 @@ generate_cluster_overview() {
         f && /"MaxPending"/ {gsub(/[[:space:],]/,""); sub(/.*:/,""); print; exit}
       ' "$cluster_opts_json")
       if [[ -n "$rr_timeout" && "$rr_timeout" =~ ^[0-9]+$ && "$rr_timeout" -gt 0 ]]; then
-        relaxed_reclaim="Enabled (Timeout=${rr_timeout}, MaxPending=${rr_maxpending:-$NA})"
+        relaxed_reclaim="on, 1 delete every ${rr_timeout} seconds (MaxPending=${rr_maxpending:-$NA})"
       else
         relaxed_reclaim="Disabled"
       fi
@@ -2637,7 +2637,7 @@ generate_cluster_overview() {
         local fs_max_h fs_min_h
         fs_max_h=$(_fmt_rate "$fs_max")
         fs_min_h=$(_fmt_rate "$fs_min")
-        autofstrim_setting="Enabled (Min Rate=${fs_max_h}, Max Rate=${fs_min_h})"
+        autofstrim_setting="Enabled (Min Rate=${fs_min_h}, Max Rate=${fs_max_h})"
       else
         autofstrim_setting="Disabled"
       fi
