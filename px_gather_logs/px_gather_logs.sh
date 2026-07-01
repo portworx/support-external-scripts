@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.6.10"
+SCRIPT_VERSION="26.7.1"
 
 
 # Function to display usage
@@ -2597,6 +2597,81 @@ generate_cluster_overview() {
     fi
   fi
 
+  # Important Settings (PXE only): Relaxed Reclaim, AutoFstrim, NBDD
+  # Sources: pxctl_cluster_options.json for Relaxed Reclaim + AutoFstrim;
+  #          stc runtimeOptions (or NodeRuntimeOptions in cluster options) for NBDD.
+  local cluster_opts_json="$output_dir/portworx/pxctl_out/pxctl_cluster_options.json"
+  local relaxed_reclaim="$NA" autofstrim_setting="$NA" nbdd_setting="$NA"
+  if [[ "$mode" == "PXE" ]]; then
+    if [[ -f "$cluster_opts_json" ]]; then
+      local rr_timeout rr_maxpending
+      rr_timeout=$(awk '
+        /"RelaxedReclaimConfig"/ {f=1; next}
+        f && /"Timeout"/ {gsub(/[[:space:],]/,""); sub(/.*:/,""); print; exit}
+      ' "$cluster_opts_json")
+      rr_maxpending=$(awk '
+        /"RelaxedReclaimConfig"/ {f=1; next}
+        f && /"MaxPending"/ {gsub(/[[:space:],]/,""); sub(/.*:/,""); print; exit}
+      ' "$cluster_opts_json")
+      if [[ -n "$rr_timeout" && "$rr_timeout" =~ ^[0-9]+$ && "$rr_timeout" -gt 0 ]]; then
+        relaxed_reclaim="Enabled (Timeout=${rr_timeout}, MaxPending=${rr_maxpending:-$NA})"
+      else
+        relaxed_reclaim="Disabled"
+      fi
+
+      local af_val fs_max fs_min
+      af_val=$(awk -F: '/"AutoFstrim"/ {gsub(/[[:space:],"]/,"",$2); print $2; exit}' "$cluster_opts_json")
+      if [[ "$af_val" == "true" ]]; then
+        fs_max=$(awk -F: '/"FstrimMaxIoRate"/ {gsub(/[[:space:],]/,"",$2); print $2; exit}' "$cluster_opts_json")
+        fs_min=$(awk -F: '/"FstrimMinIoRate"/ {gsub(/[[:space:],]/,"",$2); print $2; exit}' "$cluster_opts_json")
+        # Format bytes/sec as MiB or GiB (>=1 GiB → GiB, else MiB)
+        _fmt_rate() {
+          local b="$1"
+          if [[ -z "$b" || ! "$b" =~ ^[0-9]+$ ]]; then echo "$NA"; return; fi
+          if (( b >= 1073741824 )); then
+            awk -v v="$b" 'BEGIN{printf "%.2f GiB", v/1073741824}'
+          else
+            awk -v v="$b" 'BEGIN{printf "%.2f MiB", v/1048576}'
+          fi
+        }
+        local fs_max_h fs_min_h
+        fs_max_h=$(_fmt_rate "$fs_max")
+        fs_min_h=$(_fmt_rate "$fs_min")
+        autofstrim_setting="Enabled (Min Rate=${fs_max_h}, Max Rate=${fs_min_h})"
+      else
+        autofstrim_setting="Disabled"
+      fi
+    fi
+
+    # NBDD: prefer stc runtimeOptions; fallback to cluster options NodeRuntimeOptions
+    local nbdd_after="" nbdd_max=""
+    if [[ -f "$stc" ]]; then
+      nbdd_after=$(awk '
+        /^    runtimeOptions:/ {f=1; next}
+        f && /^    [a-zA-Z]/ {f=0; exit}
+        f && /^      device_delete_after_discard:/ {sub(/.*device_delete_after_discard:[[:space:]]*/,""); gsub(/["'"'"']/,""); sub(/[[:space:]]+$/,""); print; exit}
+      ' "$stc")
+      nbdd_max=$(awk '
+        /^    runtimeOptions:/ {f=1; next}
+        f && /^    [a-zA-Z]/ {f=0; exit}
+        f && /^      device_delete_max_concurrent:/ {sub(/.*device_delete_max_concurrent:[[:space:]]*/,""); gsub(/["'"'"']/,""); sub(/[[:space:]]+$/,""); print; exit}
+      ' "$stc")
+    fi
+    if [[ -z "$nbdd_after" && -f "$cluster_opts_json" ]]; then
+      nbdd_after=$(awk -F: '
+        /"device_delete_after_discard"/ {gsub(/[[:space:],"]/,"",$2); print $2; exit}
+      ' "$cluster_opts_json")
+      nbdd_max=$(awk -F: '
+        /"device_delete_max_concurrent"/ {gsub(/[[:space:],"]/,"",$2); print $2; exit}
+      ' "$cluster_opts_json")
+    fi
+    if [[ "$nbdd_after" == "1" ]]; then
+      nbdd_setting="Enabled (Max Concurrent=${nbdd_max:-$NA})"
+    else
+      nbdd_setting="Disabled"
+    fi
+  fi
+
   # Update Strategy type
   local update_strategy_type="$NA"
   if [[ -f "$stc" ]]; then
@@ -2714,6 +2789,14 @@ generate_cluster_overview() {
       printf "Telemetry:           %s\n" "$telemetry"
     fi
     printf "Airgapped:           %s\n" "$airgapped"
+
+    # Important Settings (PXE only)
+    if [[ "$mode" == "PXE" ]]; then
+      _sec "PX Cluster Settings"
+      printf "Relaxed Reclaim:     %s\n" "$relaxed_reclaim"
+      printf "AutoFstrim:          %s\n" "$autofstrim_setting"
+      printf "NBDD:                %s\n" "$nbdd_setting"
+    fi
 
     # Health Checks (per-check mode gating). Pxctl-derived checks (cluster state,
     # PDB, KVDB members, kernel, HA-1) apply to PXE only. PXB and PXCSI omit
