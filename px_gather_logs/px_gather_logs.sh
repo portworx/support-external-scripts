@@ -2601,7 +2601,7 @@ generate_cluster_overview() {
   # Sources: pxctl_cluster_options.json for Relaxed Reclaim + AutoFstrim;
   #          stc runtimeOptions (or NodeRuntimeOptions in cluster options) for NBDD.
   local cluster_opts_json="$output_dir/portworx/pxctl_out/pxctl_cluster_options.json"
-  local relaxed_reclaim="$NA" autofstrim_setting="$NA" nbdd_setting="$NA"
+  local relaxed_reclaim="$NA" autofstrim_setting="$NA" nbdd_setting="$NA" kvdb_wd_timeout_setting="$NA"
   if [[ "$mode" == "PXE" ]]; then
     if [[ -f "$cluster_opts_json" ]]; then
       local rr_timeout rr_maxpending
@@ -2669,6 +2669,27 @@ generate_cluster_overview() {
       nbdd_setting="Enabled (Max Concurrent=${nbdd_max:-$NA})"
     else
       nbdd_setting="Disabled"
+    fi
+
+    # KVDB Watchdog Execution Timeout: prefer stc runtimeOptions; fallback to
+    # cluster options NodeRuntimeOptions. When absent, show default.
+    local kvdb_wd_timeout=""
+    if [[ -f "$stc" ]]; then
+      kvdb_wd_timeout=$(awk '
+        /^    runtimeOptions:/ {f=1; next}
+        f && /^    [a-zA-Z]/ {f=0; exit}
+        f && /^      execution_timeout_sec:/ {sub(/.*execution_timeout_sec:[[:space:]]*/,""); gsub(/["'"'"']/,""); sub(/[[:space:]]+$/,""); print; exit}
+      ' "$stc")
+    fi
+    if [[ -z "$kvdb_wd_timeout" && -f "$cluster_opts_json" ]]; then
+      kvdb_wd_timeout=$(awk -F: '
+        /"execution_timeout_sec"/ {gsub(/[[:space:],"]/,"",$2); print $2; exit}
+      ' "$cluster_opts_json")
+    fi
+    if [[ -n "$kvdb_wd_timeout" ]]; then
+      kvdb_wd_timeout_setting="${kvdb_wd_timeout} seconds"
+    else
+      kvdb_wd_timeout_setting="Default"
     fi
   fi
 
@@ -2796,6 +2817,7 @@ generate_cluster_overview() {
       printf "Relaxed Reclaim:     %s\n" "$relaxed_reclaim"
       printf "AutoFstrim:          %s\n" "$autofstrim_setting"
       printf "NBDD:                %s\n" "$nbdd_setting"
+      printf "KVDB WD Exec Timeout: %s\n" "$kvdb_wd_timeout_setting"
     fi
 
     # Health Checks (per-check mode gating). Pxctl-derived checks (cluster state,
