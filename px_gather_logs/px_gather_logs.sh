@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.7.1"
+SCRIPT_VERSION="26.7.2"
 
 
 # Function to display usage
@@ -1666,13 +1666,17 @@ extract_node_host_diags() {
     "ip route show" "network/ip_route.txt"
     "ss -neomitau" "network/ss_sockets.txt"
     # block / device-mapper
-    "lsblk -o +VENDOR,MODEL,LOG-SEC,PHY-SEC" "block/lsblk.txt"
+    "lsblk -o +VENDOR,MODEL,LOG-SEC,PHY-SEC,DISC-ALN,DISC-GRAN,DISC-MAX,DISC-ZERO" "block/lsblk.txt"
     "blkid -c /dev/null" "block/blkid.txt"
     "mount" "block/mount.txt"
     "ls -lR /dev/disk" "block/device_list.txt"
     "ls -la /dev/mapper/" "block/dev-mapper.txt"
     "dmsetup status" "block/dmsetup_status.txt"
     "dmsetup info -c" "block/dmsetup_info.txt"
+    "lvs -a" "block/lvs.txt"
+    "mdadm --detail /dev/md12*" "block/mdadm_details.txt"
+    "pvdisplay" "block/pvdisplay.txt"
+    "vgs" "block/vgs.txt"
     "cat /etc/udev/rules.d/99-pure*" "block/udev_purearray_rules.txt"
     # multipath
     "multipath -ll" "multipath/multipath_ll.txt"
