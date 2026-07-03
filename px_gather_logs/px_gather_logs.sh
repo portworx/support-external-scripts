@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.7.2"
+SCRIPT_VERSION="26.7.3"
 
 
 # Function to display usage
@@ -628,6 +628,7 @@ if [[ "$option" == "PX" ]]; then
     "get pv --sort-by=.metadata.creationTimestamp"
     "get pv -o yaml"
     "get sn -n $namespace"
+    "get sn -n $namespace -o yaml"
     "get mutatingwebhookconfiguration"
     "get mutatingwebhookconfiguration -o yaml"
     "get svc,ep -o wide -n $namespace"
@@ -686,7 +687,7 @@ if [[ "$option" == "PX" ]]; then
     "get rules -A -o yaml"
     "get svc,ep -A -l "portworx.io/volid" -o wide"
     "get svc,ep -A -l "portworx.io/volid" -o yaml"
-    "get pods -A -o wide"
+    "get pods -A -o wide --sort-by=.metadata.creationTimestamp"
     "get volumebackups -A"
     "get volumebackups -A -o yaml"
     "get jobs -A -l kdmp.portworx.com/driver-name=kopiabackup --show-labels"
@@ -742,6 +743,7 @@ if [[ "$option" == "PX" ]]; then
     "storage/pv_list.txt"
     "storage/pv_all.yaml"
     "portworx/px_storagenodes_list.txt"
+    "portworx/px_storagenodes.yaml"
     "cluster_governance/mutatingwebhookconfiguration.txt"
     "cluster_governance/mutatingwebhookconfiguration.yaml"
     "portworx/px_svc_ep.txt"
