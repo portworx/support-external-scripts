@@ -1001,7 +1001,7 @@ if [[ "$option" == "PX" ]]; then
     "get storageprofiles -o yaml"
     "get migrations.forklift.konveyor.io -A"
     "get migrations.forklift.konveyor.io -A -o yaml"
-    "get virtualmachinerestore -A--sort-by=.metadata.creationTimestamp"
+    "get virtualmachinerestore -A --sort-by=.metadata.creationTimestamp"
     "get virtualmachinerestore -A -o yaml"
     "describe virtualmachinerestore -A"
     "get pods -l kubevirt.io=virt-launcher -A --sort-by=.metadata.creationTimestamp"
