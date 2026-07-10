@@ -2685,12 +2685,17 @@ generate_cluster_overview() {
     local nbb_error_pods=()
     if [[ "$nbdd_after" == "1" ]]; then
       nbb_check_run="yes"
+      # OpenShift uses 17001 for the PX metrics endpoint (9001 is reserved by kubelet).
+      local _metrics_port=9001
+      if $cli api-versions 2>/dev/null | grep -q 'openshift'; then
+        _metrics_port=17001
+      fi
       local _px_pods _pod _metric_out _line _node _pool _val
       _px_pods=$($cli get pods -n "$namespace" -l name=portworx --no-headers -o custom-columns=:metadata.name 2>/dev/null)
       while IFS= read -r _pod; do
         [[ -z "$_pod" ]] && continue
         _metric_out=$($cli exec -n "$namespace" "$_pod" -c portworx -- \
-          curl -s --max-time 5 http://localhost:9001/metrics 2>/dev/null \
+          curl -s --max-time 5 "http://localhost:${_metrics_port}/metrics" 2>/dev/null \
           | grep -E '^px_device_delete_delete_after_discard_enabled\{')
         if [[ -z "$_metric_out" ]]; then
           nbb_error_pods+=("$_pod")
