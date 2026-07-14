@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.7.3"
+SCRIPT_VERSION="26.7.4"
 
 
 # Function to display usage
@@ -2677,6 +2677,44 @@ generate_cluster_overview() {
       nbdd_setting="Disabled"
     fi
 
+    # NBBD per-pool metric check: when NBDD is enabled at cluster level, every
+    # pool on every PX node should report px_device_delete_delete_after_discard_enabled=1.
+
+    local nbb_check_run="no"
+    local nbb_zero_entries=()
+    local nbb_error_pods=()
+    if [[ "$nbdd_after" == "1" ]]; then
+      nbb_check_run="yes"
+      # OpenShift uses 17001 for the PX metrics endpoint (9001 is reserved by kubelet).
+      local _metrics_port=9001
+      if $cli api-versions 2>/dev/null | grep -q 'openshift'; then
+        _metrics_port=17001
+      fi
+      echo "$(date '+%Y-%m-%d %H:%M:%S'): [NBBD metric check] Start querying NBDD Enabled flag at pool level" >> "$summary_file"
+      local _px_pods _pod _metric_out _line _node _pool _val
+      _px_pods=$($cli get pods -n "$namespace" -l name=portworx --no-headers -o custom-columns=:metadata.name 2>/dev/null)
+      while IFS= read -r _pod; do
+        [[ -z "$_pod" ]] && continue
+        _metric_out=$($cli exec -n "$namespace" "$_pod" -c portworx -- \
+          curl -s --max-time 5 "http://localhost:${_metrics_port}/metrics" 2>/dev/null \
+          | grep -E '^px_device_delete_delete_after_discard_enabled\{')
+        if [[ -z "$_metric_out" ]]; then
+          nbb_error_pods+=("$_pod")
+          continue
+        fi
+        while IFS= read -r _line; do
+          [[ -z "$_line" ]] && continue
+          _val=$(awk '{print $NF}' <<< "$_line")
+          if [[ "$_val" == "0" ]]; then
+            _node=$(sed -n 's/.*node="\([^"]*\)".*/\1/p' <<< "$_line")
+            _pool=$(sed -n 's/.*poolid="\([^"]*\)".*/\1/p' <<< "$_line")
+            nbb_zero_entries+=("node=$_node poolid=$_pool value=0")
+          fi
+        done <<< "$_metric_out"
+      done <<< "$_px_pods"
+      echo "$(date '+%Y-%m-%d %H:%M:%S'): [NBBD metric check] End querying NBDD Enabled flag at pool level" >> "$summary_file"
+    fi
+
     # KVDB Watchdog Execution Timeout: prefer stc runtimeOptions; fallback to
     # cluster options NodeRuntimeOptions. When absent, show default.
     local kvdb_wd_timeout=""
@@ -2884,6 +2922,16 @@ generate_cluster_overview() {
         printf "%-22s [WARN] %d volume(s) with HA=1 (single replica) detected\n" "HA-1 Volumes:" "$ha1_vol_count"
       else
         printf "%-22s [OK]   No single-replica volumes\n" "HA-1 Volumes:"
+      fi
+    fi
+    # NBDD Consistency: per-pool metric check (PXE + NBDD enabled)
+    if [[ "$nbb_check_run" == "yes" ]]; then
+      if [[ ${#nbb_zero_entries[@]} -eq 0 && ${#nbb_error_pods[@]} -eq 0 ]]; then
+        printf "%-22s [OK]   NBDD active on all pools across PX nodes\n" "NBDD Consistency:"
+      else
+        printf "%-22s [WARN] NBDD enabled at cluster level but below pool(s) report Disabled:\n" "NBDD Consistency:"
+        for _e in "${nbb_zero_entries[@]}"; do printf "  - %s\n" "$_e"; done
+        for _p in "${nbb_error_pods[@]}"; do printf "  - Could not fetch metric from pod=%s\n" "$_p"; done
       fi
     fi
     # Pending PX PVCs (PXE + PXCSI; not PXB)
