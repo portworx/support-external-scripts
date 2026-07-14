@@ -2690,7 +2690,7 @@ generate_cluster_overview() {
       if $cli api-versions 2>/dev/null | grep -q 'openshift'; then
         _metrics_port=17001
       fi
-      echo "$(date '+%Y-%m-%d %H:%M:%S'): [NBBD metric check] Start querying px_device_delete_delete_after_discard_enabled" >> "$summary_file"
+      echo "$(date '+%Y-%m-%d %H:%M:%S'): [NBBD metric check] Start querying NBDD Enabled flag at pool level" >> "$summary_file"
       local _px_pods _pod _metric_out _line _node _pool _val
       _px_pods=$($cli get pods -n "$namespace" -l name=portworx --no-headers -o custom-columns=:metadata.name 2>/dev/null)
       while IFS= read -r _pod; do
@@ -2712,7 +2712,7 @@ generate_cluster_overview() {
           fi
         done <<< "$_metric_out"
       done <<< "$_px_pods"
-      echo "$(date '+%Y-%m-%d %H:%M:%S'): [NBBD metric check] End querying px_device_delete_delete_after_discard_enabled" >> "$summary_file"
+      echo "$(date '+%Y-%m-%d %H:%M:%S'): [NBBD metric check] End querying NBDD Enabled flag at pool level" >> "$summary_file"
     fi
 
     # KVDB Watchdog Execution Timeout: prefer stc runtimeOptions; fallback to
@@ -2929,7 +2929,7 @@ generate_cluster_overview() {
       if [[ ${#nbb_zero_entries[@]} -eq 0 && ${#nbb_error_pods[@]} -eq 0 ]]; then
         printf "%-22s [OK]   NBDD active on all pools across PX nodes\n" "NBDD Consistency:"
       else
-        printf "%-22s [WARN] NBDD enabled at cluster level but pool(s) report Disabled:\n" "NBDD Consistency:"
+        printf "%-22s [WARN] NBDD enabled at cluster level but below pool(s) report Disabled:\n" "NBDD Consistency:"
         for _e in "${nbb_zero_entries[@]}"; do printf "  - %s\n" "$_e"; done
         for _p in "${nbb_error_pods[@]}"; do printf "  - Could not fetch metric from pod=%s\n" "$_p"; done
       fi
