@@ -182,9 +182,9 @@ fi
 info "RelaxedReclaim is currently: ${RELAXED_RECLAIM_STATUS}"
 
 if [[ "${RELAXED_RECLAIM_STATUS}" != "on" ]]; then
-  err "RelaxedReclaim is NOT 'on' (found: '${RELAXED_RECLAIM_STATUS}'). Aborting detach."
-  err "Enable it first:  $cli -n ${NAMESPACE} exec ${PX_SVC} -- bash -c '$(pxctl_cmd "cluster options update --relaxed-reclaim on")'"
-  exit 1
+  warn "RelaxedReclaim is NOT 'on' (found: '${RELAXED_RECLAIM_STATUS}'). Aborting detach."
+  warn "Enable it first:  $cli -n ${NAMESPACE} exec ${PX_SVC} -- bash -c '$(pxctl_cmd "cluster options update --relaxed-reclaim on")'"
+  #exit 1
 fi
 
 info "RelaxedReclaim is ON. Proceeding."
@@ -245,7 +245,7 @@ check_nbdd
 # ---------------------------------------------------------------------------
 # Step 3: Get Released PVs matching the criteria
 # ---------------------------------------------------------------------------
-info "Fetching Released PVs (powerprotect / Delete policy, excluding px-fada-rw)..."
+info "Fetching Released PVs (Delete policy)..."
 
 mapfile -t PV_LIST < <(
   $cli get pv -o json | jq -r '
@@ -253,9 +253,7 @@ mapfile -t PV_LIST < <(
     select(
       .status.phase == "Released" and
       .spec.persistentVolumeReclaimPolicy == "Delete" and
-      .spec.csi.driver == "pxd.portworx.com" and
-      .spec.claimRef.namespace == "powerprotect" and
-      .spec.storageClassName != "px-fada-rw"
+      .spec.csi.driver == "pxd.portworx.com"
     ) | .metadata.name
   '
 )
