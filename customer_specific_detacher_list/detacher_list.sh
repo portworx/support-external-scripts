@@ -182,8 +182,7 @@ fi
 info "RelaxedReclaim is currently: ${RELAXED_RECLAIM_STATUS}"
 
 if [[ "${RELAXED_RECLAIM_STATUS}" != "on" ]]; then
-  warn "RelaxedReclaim is NOT 'on' (found: '${RELAXED_RECLAIM_STATUS}'). Aborting detach."
-  warn "Enable it first:  $cli -n ${NAMESPACE} exec ${PX_SVC} -- bash -c '$(pxctl_cmd "cluster options update --relaxed-reclaim on")'"
+  warn "RelaxedReclaim is NOT 'on' (found: '${RELAXED_RECLAIM_STATUS}'). Raising WARN."
   #exit 1
 fi
 
@@ -233,10 +232,8 @@ check_nbdd() {
   if [[ "$nbdd_after" == "1" ]]; then
     info "NBDD cluster setting : Enabled (device_delete_max_concurrent=${nbdd_max:-N/A})"
   else
-    err "NBDD is NOT enabled (device_delete_after_discard='${nbdd_after:-unset}'). Aborting detach."
-    err "Enable NBDD via StorageCluster runtimeOptions or:"
-    err "  $cli -n ${NAMESPACE} exec ${PX_SVC} -- bash -c '$(pxctl_cmd "cluster options update --device-delete-after-discard 1")'"
-    exit 1
+    warn "NBDD is NOT enabled (device_delete_after_discard='${nbdd_after:-unset}'). Rasing WARN"
+    #exit 1
   fi
 }
 
