@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.7.4"
+SCRIPT_VERSION="26.7.5"
 
 
 # Function to display usage
@@ -1366,6 +1366,7 @@ ocp_px_commands_and_files=(
   "get csv -n "$namespace" -o yaml" "openshift/px_ocp_csv.yaml"
   "get operators -A -o wide" "openshift/oc_operators_list.txt"
   "get operators portworx-certified.portworx -o yaml" "openshift/oc_operators_portworx.yaml"
+  "get operatorgroup|grep portworx" "openshift/px_ocp_operatorgroup.yaml"
   )
 
   pxe_kvdb_keys_stats_export() {
