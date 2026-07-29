@@ -1366,7 +1366,7 @@ ocp_px_commands_and_files=(
   "get csv -n "$namespace" -o yaml" "openshift/px_ocp_csv.yaml"
   "get operators -A -o wide" "openshift/oc_operators_list.txt"
   "get operators portworx-certified.portworx -o yaml" "openshift/oc_operators_portworx.yaml"
-  "get operatorgroup -A | grep portworx" "openshift/px_ocp_operatorgroup.txt"
+  "get operatorgroup -A | grep portworx" "openshift/ocp_operatorgroup_portworx.txt"
   )
 
   pxe_kvdb_keys_stats_export() {
@@ -2107,7 +2107,11 @@ extract_ocp_specific_commands_op() {
       cmd="${ocp_px_commands_and_files[i]}"
       output_file="$output_dir/${ocp_px_commands_and_files[i+1]}"
       #echo ">>> Running: kubectl $cmd > $file"
-      $cli $cmd > "$output_file" 2>&1
+      if [[ "$cmd" == *"|"* ]]; then
+        eval "$cli $cmd" > "$output_file" 2>&1
+      else
+        $cli $cmd > "$output_file" 2>&1
+      fi
     done
   fi
 
