@@ -2536,7 +2536,12 @@ generate_cluster_overview() {
     kvdb_member_count=$(awk 'NR>2 && NF>0 {c++} END {print c+0}' "$kvdb_members_file")
     while IFS= read -r line; do
       [[ -n "$line" ]] && unhealthy_kvdb+=("$line")
-    done < <(awk 'NR>2 && NF>0 && $5=="false" {print $1, "(HEALTHY=false)"}' "$kvdb_members_file")
+    done < <(awk '
+      NR==2 { for (i=1;i<=NF;i++) if ($i=="HEALTHY") hcol=i; next }
+      NR>2 && NF>0 {
+        h = (hcol ? $hcol : $(NF-2))
+        if (h=="false") print $1, "(HEALTHY=false)"
+      }' "$kvdb_members_file")
   fi
 
   # PX Cluster State: check each node's Status and StorageStatus in pxctl_status.txt
