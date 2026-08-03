@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.7.4"
+SCRIPT_VERSION="26.7.5"
 
 
 # Function to display usage
@@ -1366,6 +1366,7 @@ ocp_px_commands_and_files=(
   "get csv -n "$namespace" -o yaml" "openshift/px_ocp_csv.yaml"
   "get operators -A -o wide" "openshift/oc_operators_list.txt"
   "get operators portworx-certified.portworx -o yaml" "openshift/oc_operators_portworx.yaml"
+  "get operatorgroup -A | grep portworx" "openshift/ocp_operatorgroup_portworx.txt"
   )
 
   pxe_kvdb_keys_stats_export() {
@@ -2106,7 +2107,11 @@ extract_ocp_specific_commands_op() {
       cmd="${ocp_px_commands_and_files[i]}"
       output_file="$output_dir/${ocp_px_commands_and_files[i+1]}"
       #echo ">>> Running: kubectl $cmd > $file"
-      $cli $cmd > "$output_file" 2>&1
+      if [[ "$cmd" == *"|"* ]]; then
+        eval "$cli $cmd" > "$output_file" 2>&1
+      else
+        $cli $cmd > "$output_file" 2>&1
+      fi
     done
   fi
 
@@ -2531,7 +2536,12 @@ generate_cluster_overview() {
     kvdb_member_count=$(awk 'NR>2 && NF>0 {c++} END {print c+0}' "$kvdb_members_file")
     while IFS= read -r line; do
       [[ -n "$line" ]] && unhealthy_kvdb+=("$line")
-    done < <(awk 'NR>2 && NF>0 && $5=="false" {print $1, "(HEALTHY=false)"}' "$kvdb_members_file")
+    done < <(awk '
+      NR==2 { for (i=1;i<=NF;i++) if ($i=="HEALTHY") hcol=i; next }
+      NR>2 && NF>0 {
+        h = (hcol ? $hcol : $(NF-2))
+        if (h=="false") print $1, "(HEALTHY=false)"
+      }' "$kvdb_members_file")
   fi
 
   # PX Cluster State: check each node's Status and StorageStatus in pxctl_status.txt
