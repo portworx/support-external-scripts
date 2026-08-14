@@ -13,8 +13,11 @@
 #   px_metrics_dump_exporter.sh ###(It prompts for needed inputs)
 #   px_metrics_dump_exporter.sh --prom-ns portworx --since-days 3
 #   px_metrics_dump_exporter.sh --prom-ns portworx --since-days 1 --match-prefix px
+#   px_metrics_dump_exporter.sh --prom-ns portworx --since-days 1 --match-prefix px,node,kube
+#   px_metrics_dump_exporter.sh --prom-ns portworx --since-days 1 --match-prefix '*'
 #   px_metrics_dump_exporter.sh --prom-ns portworx --min-ms 1730000000000 --max-ms 1730100000000 --match-prefix px --output metrics.om
 #   px_metrics_dump_exporter.sh --prom-ns openshift-user-workload-monitoring --since-days 1 --match-prefix px --cli oc
+#   px_metrics_dump_exporter.sh --prom-ns portworx --since-days 7 --chunk-hours 6 --chunk-sleep 5
 #
 # By default, saves to px_metrics_export_<YYYYMMDD>_<HHMMSS>.om if --output is not specified.
 # Additionally creates <OUTPUT_FILE>.tar.gz containing the .om and the .log.
@@ -38,19 +41,36 @@ Required: Time range (choose exactly one):
                             Explicit minimum time (epoch ms), with optional max (defaults to now)
 
 Optional:
-  --match-prefix <prefix>   Metric name prefix; expands to --match '{__name__=~"(prefix)_.*"}'
-                            Can be repeated. Defaults to px (i.e., px_*)
+  --match-prefix <prefix>   Metric name prefix filter. Defaults to px (i.e., px_*).
+                            Use '*' to dump ALL metrics (no filter applied).
+                            Supply a single comma-separated list or repeat the flag;
+                            all prefixes are OR'd: --match '{__name__=~"(p1|p2)_.*"}'.
+                            Examples:
+                              --match-prefix px
+                              --match-prefix px,node,kube
+                              --match-prefix '*'
+  --chunk-hours <N>         Split the time range into N-hour windows and dump one chunk
+                            at a time to reduce peak memory/CPU on the Prometheus pod.
+                            (default: 6; use 0 to disable chunking)
+  --chunk-sleep <N>         Seconds to sleep between chunks, giving the pod time to
+                            garbage-collect before the next window. (default: 2)
   --output <filename>       Save dump to a local file (default: px_metrics_export_<YYYYMMDD>_<HHMMSS>.om)
   --cli <kubectl|oc>        CLI to use (default: auto-detect; prefers kubectl, falls back to oc)
   -h, --help                Show this help message and exit
 
 Notes:
-  - If you provide multiple --match-prefix flags, they are OR'd into a single regex like (px|abc)_.*.
+  - Prefixes may be supplied as a comma-separated value or via repeated --match-prefix flags (or both).
+  - Use '*' to skip the --match filter entirely and export every metric.
   - --since-days and --min-ms/--max-ms are mutually exclusive.
+  - Chunked dumps append to a single output file; the final result is identical to a
+    non-chunked dump but with a much lower peak memory footprint on the pod.
 
 Examples:
   $(basename "$0") --prom-ns portworx --since-days 3
+  $(basename "$0") --prom-ns portworx --since-days 1 --match-prefix px,node,kube
+  $(basename "$0") --prom-ns portworx --since-days 1 --match-prefix '*'
   $(basename "$0") --prom-ns portworx --min-ms 1730000000000 --max-ms 1730100000000 --match-prefix px --output metrics.om
+  $(basename "$0") --prom-ns portworx --since-days 7 --chunk-hours 6 --chunk-sleep 5
   $(basename "$0") --prom-ns openshift-user-workload-monitoring --since-days 3 --match-prefix px --cli oc
 EOF
 }
@@ -61,8 +81,25 @@ SINCE_DAYS=""
 MIN_MS=""
 MAX_MS=""
 OUTPUT_FILE=""
-declare -a MATCH_PREFIXES=("*")
+declare -a MATCH_PREFIXES=("px")
+MATCH_ALL=false
 CLI_CHOICE=""
+CHUNK_HOURS=6
+CHUNK_SLEEP=2
+
+# --- Helper: portable realpath (macOS may not have GNU realpath) ---
+abs_path() {
+  local p="$1"
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$p" 2>/dev/null || echo "$p"
+  else
+    # Pure bash fallback: resolve relative paths against $PWD
+    case "$p" in
+      /*) echo "$p" ;;
+      *)  echo "$PWD/$p" ;;
+    esac
+  fi
+}
 
 # --- Helper: to UTC string from epoch ms ---
 to_utc() {
@@ -171,15 +208,35 @@ while [[ $# -gt 0 ]]; do
       ;;
     --match-prefix)
       if [[ -z "${2:-}" ]]; then
-        echo "Error: --match-prefix requires a prefix (e.g., px)."
+        echo "Error: --match-prefix requires a value (e.g., px  or  px,node,kube  or  '*')."
         exit 1
       fi
-      prefix="$2"
-      if [[ ! "$prefix" =~ ^[A-Za-z_:][A-Za-z0-9_:]*$ ]]; then
-        echo "Error: --match-prefix '$prefix' is not a valid Prometheus metric prefix. Allowed: ^[A-Za-z_:][A-Za-z0-9_:]*$"
-        exit 1
+      raw_prefix="$2"
+      # '*' means dump everything — no --match filter
+      if [[ "$raw_prefix" == "*" ]]; then
+        MATCH_ALL=true
+        MATCH_PREFIXES=()
+      else
+        # Split comma-separated list and validate each token
+        IFS=',' read -ra _tokens <<< "$raw_prefix"
+        for _tok in "${_tokens[@]}"; do
+          _tok="${_tok// /}"   # strip any accidental spaces
+          if [[ -z "$_tok" ]]; then continue; fi
+          if [[ ! "$_tok" =~ ^[A-Za-z_:][A-Za-z0-9_:]*$ ]]; then
+            echo "Error: --match-prefix '$_tok' is not a valid Prometheus metric prefix. Allowed: ^[A-Za-z_:][A-Za-z0-9_:]*$"
+            exit 1
+          fi
+          MATCH_PREFIXES+=("$_tok")
+        done
       fi
-      MATCH_PREFIXES+=("$prefix")
+      shift 2
+      ;;
+    --chunk-hours)
+      CHUNK_HOURS="${2:-}"
+      shift 2
+      ;;
+    --chunk-sleep)
+      CHUNK_SLEEP="${2:-}"
       shift 2
       ;;
     --output)
@@ -251,6 +308,14 @@ if [[ -n "$MAX_MS" && ! "$MAX_MS" =~ ^[0-9]+$ ]]; then
   echo "Error: --max-ms must be numeric."
   exit 1
 fi
+if [[ ! "$CHUNK_HOURS" =~ ^[0-9]+$ ]]; then
+  echo "Error: --chunk-hours must be a non-negative integer."
+  exit 1
+fi
+if [[ ! "$CHUNK_SLEEP" =~ ^[0-9]+$ ]]; then
+  echo "Error: --chunk-sleep must be a non-negative integer."
+  exit 1
+fi
 
 # --- Resolve CLI (kubectl/oc) ---
 CLI_BIN=""
@@ -279,7 +344,8 @@ fi
 if [[ -n "$SINCE_DAYS" && -z "$MIN_MS" && -z "$MAX_MS" ]]; then
   echo "Calculating time range for last $SINCE_DAYS day(s)..."
   CURRENT_MS=$(($(date +%s) * 1000))
-  MIN_MS=$(($(date -d "-${SINCE_DAYS} days" +%s) * 1000))
+  # Portable: pure arithmetic avoids GNU date -d / BSD date -v differences
+  MIN_MS=$(( ($(date +%s) - SINCE_DAYS * 86400) * 1000 ))
   MAX_MS=$CURRENT_MS
 fi
 
@@ -292,35 +358,27 @@ if [[ -z "$POD_NAME" ]]; then
 fi
 echo "Found Prometheus pod: $POD_NAME"
 
-# --- Build Command Dynamically ---
-CMD=("$CLI_BIN" -n "$PROM_NAMESPACE" exec "$POD_NAME" -- promtool tsdb dump-openmetrics)
-
-if [[ -n "$MIN_MS" ]]; then
-  CMD+=(--min-time="$MIN_MS")
-fi
-if [[ -n "$MAX_MS" ]]; then
-  CMD+=(--max-time="$MAX_MS")
-fi
+# --- Build Base Command (without time flags — those are added per-chunk) ---
+CMD_BASE=("$CLI_BIN" -n "$PROM_NAMESPACE" exec "$POD_NAME" -- promtool tsdb dump-openmetrics)
 
 # Build a single OR-regex for all prefixes: (p1|p2|...|pn)_.*
-if ((${#MATCH_PREFIXES[@]} > 0)); then
+# Skip entirely when MATCH_ALL=true (i.e. --match-prefix '*' was given)
+MATCH_ARG=""
+if [[ "$MATCH_ALL" == false ]] && ((${#MATCH_PREFIXES[@]} > 0)); then
   # de-duplicate while preserving order
-  declare -A seen_prefix
+  # Uses a string sentinel instead of declare -A so it works on bash 3.2 (macOS default)
   unique_prefixes=()
+  seen_str=" "
   for p in "${MATCH_PREFIXES[@]}"; do
-    if [[ -z "${seen_prefix[$p]:-}" ]]; then
-      seen_prefix[$p]=1
+    if [[ "$seen_str" != *" $p "* ]]; then
+      seen_str="$seen_str$p "
       unique_prefixes+=("$p")
     fi
   done
   joined=$(printf "|%s" "${unique_prefixes[@]}")
   joined="${joined:1}"
-  pattern="{__name__=~\"(${joined})_.*\"}"
-  CMD+=(--match="$pattern")
+  MATCH_ARG="{__name__=~\"(${joined})_.*\"}"
 fi
-
-# Data directory inside Prometheus container
-CMD+=("/prometheus")
 
 # --- Set Default Output Filename ---
 if [[ -z "$OUTPUT_FILE" ]]; then
@@ -347,14 +405,22 @@ package_artifacts() {
 
   tar -czf "$tar_name" "${files[@]}"
   echo
-  echo "Packaged artifacts into: $(realpath "$tar_name" 2>/dev/null || echo "$tar_name")"
+  echo "Packaged artifacts into: $(abs_path "$tar_name")"
   echo
 }
 
 # If any command fails, package whatever we have so far
 trap 'echo "An error occurred. Packaging partial artifacts..."; package_artifacts' ERR
 
-# --- Execute Command ---
+# --- Compute effective chunk size in milliseconds ---
+# CHUNK_HOURS=0 disables chunking (single shot, original behaviour)
+if (( CHUNK_HOURS > 0 )); then
+  CHUNK_MS=$(( CHUNK_HOURS * 3600 * 1000 ))
+else
+  CHUNK_MS=0
+fi
+
+# --- Execute Command (chunked or single shot) ---
 echo
 echo "=======SUMMARY======"
 echo "    Using CLI         : $CLI_BIN"
@@ -362,12 +428,55 @@ echo "    Min time          : $MIN_MS (UTC: $(to_utc "$MIN_MS"))"
 echo "    Max time          : $MAX_MS (UTC: $(to_utc "$MAX_MS"))"
 echo "    Getting from pod  : $POD_NAME (namespace: $PROM_NAMESPACE)"
 echo "    Saving output to  : $OUTPUT_FILE"
+if (( CHUNK_MS > 0 )); then
+  TOTAL_MS=$(( MAX_MS - MIN_MS ))
+  TOTAL_CHUNKS=$(( (TOTAL_MS + CHUNK_MS - 1) / CHUNK_MS ))
+  echo "    Chunk size        : ${CHUNK_HOURS}h (${TOTAL_CHUNKS} chunk(s) total)"
+  echo "    Sleep between     : ${CHUNK_SLEEP}s"
+else
+  echo "    Chunking          : disabled (single shot)"
+fi
 echo
-echo "Extracting PX metrics from $POD_NAME and saving at $(realpath "$OUTPUT_FILE" 2>/dev/null || echo "$OUTPUT_FILE")"
+echo "Extracting PX metrics from $POD_NAME and saving at $(abs_path "$OUTPUT_FILE")"
 echo "Extraction In-Progress ... ..."
-"${CMD[@]}" > "$OUTPUT_FILE"
+
+# Helper: run one promtool dump for a given [start, end) window and append to OUTPUT_FILE
+run_chunk() {
+  local t_start="$1"
+  local t_end="$2"
+  local chunk_cmd=("${CMD_BASE[@]}" --min-time="$t_start" --max-time="$t_end")
+  [[ -n "$MATCH_ARG" ]] && chunk_cmd+=(--match="$MATCH_ARG")
+  chunk_cmd+=("/prometheus")
+  "${chunk_cmd[@]}" >> "$OUTPUT_FILE"
+}
+
+if (( CHUNK_MS > 0 )); then
+  chunk_start=$MIN_MS
+  chunk_num=0
+  while (( chunk_start < MAX_MS )); do
+    chunk_end=$(( chunk_start + CHUNK_MS ))
+    (( chunk_end > MAX_MS )) && chunk_end=$MAX_MS
+    chunk_num=$(( chunk_num + 1 ))
+    echo "  Chunk ${chunk_num}/${TOTAL_CHUNKS}: $(to_utc "$chunk_start") -> $(to_utc "$chunk_end")"
+    run_chunk "$chunk_start" "$chunk_end"
+    chunk_start=$chunk_end
+    # Sleep between chunks (skip after the last one)
+    if (( chunk_start < MAX_MS && CHUNK_SLEEP > 0 )); then
+      sleep "$CHUNK_SLEEP"
+    fi
+  done
+else
+  # Single-shot (original behaviour when chunking is disabled)
+  chunk_cmd=("${CMD_BASE[@]}")
+  [[ -n "$MIN_MS" ]] && chunk_cmd+=(--min-time="$MIN_MS")
+  [[ -n "$MAX_MS" ]] && chunk_cmd+=(--max-time="$MAX_MS")
+  [[ -n "$MATCH_ARG" ]] && chunk_cmd+=(--match="$MATCH_ARG")
+  chunk_cmd+=("/prometheus")
+  "${chunk_cmd[@]}" >> "$OUTPUT_FILE"
+fi
+
 echo
-echo "Extraction completed. File saved at: $(realpath "$OUTPUT_FILE" 2>/dev/null || echo "$OUTPUT_FILE")"
+echo "Extraction completed. File saved at: $(abs_path "$OUTPUT_FILE")"
 echo
 # --- Post-extraction analysis ---
 perform_analysis "$OUTPUT_FILE"
