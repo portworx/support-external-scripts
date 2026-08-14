@@ -61,7 +61,7 @@ SINCE_DAYS=""
 MIN_MS=""
 MAX_MS=""
 OUTPUT_FILE=""
-declare -a MATCH_PREFIXES=("px")
+declare -a MATCH_PREFIXES=("*")
 CLI_CHOICE=""
 
 # --- Helper: to UTC string from epoch ms ---
