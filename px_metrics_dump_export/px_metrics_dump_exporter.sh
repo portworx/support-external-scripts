@@ -42,13 +42,14 @@ Required: Time range (choose exactly one):
 
 Optional:
   --match-prefix <prefix>   Metric name prefix filter. Defaults to px (i.e., px_*).
+                            The first explicit --match-prefix REPLACES the default px;
+                            repeat the flag or use a comma list to combine prefixes.
                             Use '*' to dump ALL metrics (no filter applied).
-                            Supply a single comma-separated list or repeat the flag;
-                            all prefixes are OR'd: --match '{__name__=~"(p1|p2)_.*"}'.
                             Examples:
-                              --match-prefix px
-                              --match-prefix px,node,kube
-                              --match-prefix '*'
+                              --match-prefix node              (node_* only)
+                              --match-prefix px,node           (px_* and node_*)
+                              --match-prefix px --match-prefix node  (same as above)
+                              --match-prefix '*'               (everything)
   --chunk-hours <N>         Split the time range into N-hour windows and dump one chunk
                             at a time to reduce peak memory/CPU on the Prometheus pod.
                             (default: 6; use 0 to disable chunking)
@@ -59,7 +60,9 @@ Optional:
   -h, --help                Show this help message and exit
 
 Notes:
-  - Prefixes may be supplied as a comma-separated value or via repeated --match-prefix flags (or both).
+  - Without --match-prefix the script defaults to capturing only px_* metrics.
+  - The first --match-prefix flag replaces the default 'px'; subsequent flags (or
+    additional comma-separated tokens) are OR'd together.
   - Use '*' to skip the --match filter entirely and export every metric.
   - --since-days and --min-ms/--max-ms are mutually exclusive.
   - Chunked dumps append to a single output file; the final result is identical to a
@@ -81,8 +84,9 @@ SINCE_DAYS=""
 MIN_MS=""
 MAX_MS=""
 OUTPUT_FILE=""
-declare -a MATCH_PREFIXES=("px")
+declare -a MATCH_PREFIXES=("px")   # default; cleared on first explicit --match-prefix
 MATCH_ALL=false
+PREFIX_EXPLICITLY_SET=false        # tracks whether user gave any --match-prefix
 CLI_CHOICE=""
 CHUNK_HOURS=6
 CHUNK_SLEEP=2
@@ -216,7 +220,15 @@ while [[ $# -gt 0 ]]; do
       if [[ "$raw_prefix" == "*" ]]; then
         MATCH_ALL=true
         MATCH_PREFIXES=()
+        PREFIX_EXPLICITLY_SET=true
       else
+        # First explicit --match-prefix clears the built-in "px" default so that
+        # e.g. --match-prefix node captures ONLY node_* (not px_* too).
+        # Repeat the flag or use a comma list to combine: --match-prefix px,node
+        if [[ "$PREFIX_EXPLICITLY_SET" == false ]]; then
+          MATCH_PREFIXES=()
+          PREFIX_EXPLICITLY_SET=true
+        fi
         # Split comma-separated list and validate each token
         IFS=',' read -ra _tokens <<< "$raw_prefix"
         for _tok in "${_tokens[@]}"; do
@@ -440,6 +452,21 @@ echo
 echo "Extracting PX metrics from $POD_NAME and saving at $(abs_path "$OUTPUT_FILE")"
 echo "Extraction In-Progress ... ..."
 
+# Helper: print a command array as a single readable line
+echo_cmd() {
+  local arg
+  local out=""
+  for arg in "$@"; do
+    # Shell-quote any argument that contains spaces or special characters
+    if [[ "$arg" =~ [[:space:]\'\"\{\}\|\*\?] ]]; then
+      out="$out '${arg//\'/\'\\\'\'}'"
+    else
+      out="$out $arg"
+    fi
+  done
+  echo "  Running: ${out# }"
+}
+
 # Helper: run one promtool dump for a given [start, end) window and append to OUTPUT_FILE
 run_chunk() {
   local t_start="$1"
@@ -447,6 +474,7 @@ run_chunk() {
   local chunk_cmd=("${CMD_BASE[@]}" --min-time="$t_start" --max-time="$t_end")
   [[ -n "$MATCH_ARG" ]] && chunk_cmd+=(--match="$MATCH_ARG")
   chunk_cmd+=("/prometheus")
+  echo_cmd "${chunk_cmd[@]}"
   "${chunk_cmd[@]}" >> "$OUTPUT_FILE"
 }
 
@@ -472,6 +500,7 @@ else
   [[ -n "$MAX_MS" ]] && chunk_cmd+=(--max-time="$MAX_MS")
   [[ -n "$MATCH_ARG" ]] && chunk_cmd+=(--match="$MATCH_ARG")
   chunk_cmd+=("/prometheus")
+  echo_cmd "${chunk_cmd[@]}"
   "${chunk_cmd[@]}" >> "$OUTPUT_FILE"
 fi
 
