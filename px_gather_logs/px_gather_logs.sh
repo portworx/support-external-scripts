@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.8.1"
+SCRIPT_VERSION="26.8.2"
 
 
 # Function to display usage
@@ -58,10 +58,40 @@ print_progress() {
     local current_stage=$1
     local total_stages="15"
     local action=$2
+    # Clear any leftover in-place substage line from the previous stage.
+    if [ -t 1 ]; then
+        printf '\r\033[K'
+    fi
     if [[ "$action" == "skip" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
     else
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting $current_stage/$total_stages..." | tee -a "$summary_file"
+    fi
+}
+
+# Print a substage progress line within a stage. On a TTY, overwrites the
+# previous substage line in place (single \r-updated line) so the console
+# stays clean. Always appends a full line to the summary file for the record.
+# Usage: print_substage <stage> <sub_current> <sub_total> <label>
+print_substage() {
+    local stage=$1
+    local sub_current=$2
+    local sub_total=$3
+    local label=$4
+    local ts
+    ts=$(date '+%Y-%m-%d %H:%M:%S')
+    printf '%s:   Stage %s [%s/%s] %s\n' "$ts" "$stage" "$sub_current" "$sub_total" "$label" >> "$summary_file"
+    if [ -t 1 ]; then
+        printf '\r\033[K%s:   Stage %s [%s/%s] %s' "$ts" "$stage" "$sub_current" "$sub_total" "$label"
+    else
+        printf '%s:   Stage %s [%s/%s] %s\n' "$ts" "$stage" "$sub_current" "$sub_total" "$label"
+    fi
+}
+
+# Clear the in-place substage line from the console (no-op if not a TTY).
+clear_substage_line() {
+    if [ -t 1 ]; then
+        printf '\r\033[K'
     fi
 }
 # Helper: returns 0 (true) if the pod is in ContainerCreating state
@@ -1463,11 +1493,17 @@ ocp_px_commands_and_files=(
       # Define common prefix for exec commands to improve readability
       local exec_cmd=($cli -n "$namespace" exec service/portworx-service -- /opt/pwx/oci/rootfs/usr/local/bin/etcdctl --endpoints="${ENDPOINTS}")
 
+      print_substage 14 1 6 "etcdctl member list"
       "${exec_cmd[@]}" member list > "$target_dir/etcdctl_kvdb_member_list.txt" 2>&1 || true
+      print_substage 14 2 6 "etcdctl endpoint health"
       "${exec_cmd[@]}" endpoint health --write-out=table > "$target_dir/etcdctl_kvdb_member_health.txt" 2>&1 || true
+      print_substage 14 3 6 "etcdctl get keys-only (full)"
       "${exec_cmd[@]}" get --keys-only --prefix "" > "$target_dir/etcdctl_kvdb_keys_only.txt" 2>&1 || true
+      print_substage 14 4 6 "etcdctl get cluster/database"
       "${exec_cmd[@]}" get --prefix "pwx/${cluster_id}/cluster/database" > "$target_dir/etcdctl_kvdb_clusterdb.txt" 2>&1 || true
+      print_substage 14 5 6 "etcdctl get storage/cloudsnap"
       "${exec_cmd[@]}" get --prefix "pwx/${cluster_id}/storage/cloudsnap" > "$target_dir/etcdctl_kvdb_cloudsnap.txt" 2>&1 || true
+      print_substage 14 6 6 "etcdctl get cloudsnap/v2.deletes"
       "${exec_cmd[@]}" get --prefix "pwx/${cluster_id}/storage/cloudsnap/v2.deletes" > "$target_dir/etcdctl_kvdb_v2deletes.txt" 2>&1 || true
 
       awk -F'/' '{print $1"/"$2"/"$3"/"$4}' $target_dir/etcdctl_kvdb_keys_only.txt | sort | uniq -c > "$target_dir/kvdb_keys_statistics_summary.txt" 2>&1 || true
@@ -1481,24 +1517,28 @@ pxb_mongo_export() {
   run_query() {
     local collection=$1
     local projection=${2:-"{}"}
-    
+
     $cli exec -n "$namespace" pxc-backup-mongodb-2 -- \
       mongosh admin --username root --password "$DB_PASS" --quiet \
       --eval "const d = db.getSiblingDB('px-backup').${collection}.find({}, ${projection}).toArray(); print(JSON.stringify(d));"
   }
   ## 1. Backup Objects
+  print_substage 7 1 5 "mongo: backupobjects"
   run_query "backupobjects" > "$output_dir/pxb_db_collections/pxb_backupobjects.json"
 
   ## 2. Backup Schedule Objects
+  print_substage 7 2 5 "mongo: backupscheduleobjects"
   run_query "backupscheduleobjects" > "$output_dir/pxb_db_collections/pxb_backupscheduleobjects.json"
 
   ## 3. Cluster Objects (Excluding kubeconfig for security)
+  print_substage 7 3 5 "mongo: clusterobjects"
   run_query "clusterobjects" '{ "clusterInfo.kubeconfig": 0 }' > "$output_dir/pxb_db_collections/pxb_clusterobjects.json"
-
   ## 4. Backup Location Objects
+  print_substage 7 4 5 "mongo: backuplocationobjects"
   run_query "backuplocationobjects" > "$output_dir/pxb_db_collections/pxb_backuplocationobjects.json"
 
   ## 5. Schedule Policy Objects
+  print_substage 7 5 5 "mongo: schedulepolicyobjects"
   run_query "schedulepolicyobjects" > "$output_dir/pxb_db_collections/pxb_schedulepolicyobjects.json"
 
 }
@@ -1531,13 +1571,26 @@ log_info "Extraction Started"
 
 # Execute commands and save outputs to files
 print_progress 1
+_stage1_total=${#commands[@]}
+_stage1_counter=$(mktemp -t pxgl_stage1.XXXXXX)
+: > "$_stage1_counter"
+print_substage 1 0 "$_stage1_total" "kubectl commands starting"
 for i in "${!commands[@]}"; do
   cmd="${commands[$i]}"
   output_file="$output_dir/${output_files[$i]}"
   _parallel_slot
-  ( $cli $cmd > "$output_file" 2>&1 ) &
+  (
+    $cli $cmd > "$output_file" 2>&1
+    # Append a single byte; count file size for a race-free progress count.
+    printf '.' >> "$_stage1_counter"
+    _done=$(wc -c < "$_stage1_counter" | tr -d ' ')
+    print_substage 1 "$_done" "$_stage1_total" "kubectl commands"
+  ) &
 done
 _parallel_wait
+rm -f "$_stage1_counter"
+
+print_substage 1 "$_stage1_total" "$_stage1_total" "kubectl top nodes"
 
    if [ "$sec_enabled" == "true" ]; then
      TOKEN_EXP="export PXCTL_AUTH_TOKEN=$($cli -n $namespace get secret px-admin-token --template='{{index .data "auth-token" | base64decode}}')"
@@ -1566,9 +1619,11 @@ esac
 # Execute pxctl commands 
 
 extract_pxctl_op() {
+local _pxctl_total=${#pxctl_commands[@]}
 for i in "${!pxctl_commands[@]}"; do
   cmd="${pxctl_commands[$i]}"
   output_file="$output_dir/${pxctl_output_files[$i]}"
+  print_substage 2 "$((i+1))" "$_pxctl_total" "pxctl $cmd"
   #echo "Executing: pxctl $cmd"
   #final_px_command="$pxcmd $cmd\""
   #echo $final_px_command
@@ -1617,18 +1672,22 @@ extract_module_cs() {
     cred_name=$(echo "$cred_rows" | awk '{print $2}')
     local sanitized="${cred_name//\//_}"
     local out_file="$output_dir/portworx/pxctl_out/pxctl_cs_list_${sanitized}.txt"
+    print_substage 12 1 1 "cs list ($cred_name)"
     if [ "$sec_enabled" == "true" ]; then
       $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list" > "$out_file" 2>&1
     else
       $cli -n $namespace exec service/portworx-service -- bash -c "/opt/pwx/bin/pxctl cs list" > "$out_file" 2>&1
     fi
   else
+    local _cs_idx=0
     while IFS= read -r row; do
       local cred_id cred_name sanitized out_file
       cred_id=$(echo "$row" | awk '{print $1}')
       cred_name=$(echo "$row" | awk '{print $2}')
       sanitized="${cred_name//\//_}"
       out_file="$output_dir/portworx/pxctl_out/pxctl_cs_list_${sanitized}.txt"
+      _cs_idx=$((_cs_idx+1))
+      print_substage 12 "$_cs_idx" "$cred_count" "cs list ($cred_name)"
       if [ "$sec_enabled" == "true" ]; then
         $cli -n $namespace exec service/portworx-service -- bash -c "${TOKEN_EXP} && /opt/pwx/bin/pxctl cs list --cred-id $cred_id" > "$out_file" 2>&1
       else
@@ -1744,10 +1803,14 @@ extract_node_host_diags() {
   )
 
   IFS=',' read -ra _host_arr <<< "$worker_hosts"
+  local _host_total=${#_host_arr[@]}
+  local _host_idx=0
+  local _cmd_total=$(( ${#host_commands_and_files[@]} / 2 ))
   for raw_host in "${_host_arr[@]}"; do
     local host
     host=$(echo "$raw_host" | xargs)
     [[ -n "$host" ]] || continue
+    _host_idx=$((_host_idx+1))
 
     local host_dir="$node_diags_dir/$host"
     mkdir -p "$host_dir"
@@ -1766,9 +1829,12 @@ extract_node_host_diags() {
       fi
     fi
 
+    local _cmd_idx=0
     for (( j=0; j<${#host_commands_and_files[@]}; j+=2 )); do
       local cmd="${host_commands_and_files[j]}"
       local out_file="$host_dir/${host_commands_and_files[j+1]}"
+      _cmd_idx=$((_cmd_idx+1))
+      print_substage 13 "$_host_idx/$_host_total" "$_cmd_idx/$_cmd_total" "$host: ${host_commands_and_files[j+1]}"
       mkdir -p "$(dirname "$out_file")"
       if $is_ocp; then
         $cli debug node/"$host" --quiet=true -- chroot /host bash -c "$cmd" > "$out_file" 2>&1
@@ -1797,8 +1863,10 @@ if [[ "$option" == "PX" ]]; then
 echo "PX-POD-Status  - BASTION_HOST_TIME | POD_NAME | NODE_NAME | PX_POD_TIME" >> "${output_dir}/portworx/date_px_containers.out"
 fi
 
+_stage3_total=${#log_labels[@]}
 for i in "${!log_labels[@]}"; do
   label="${log_labels[$i]}"
+  print_substage 3 "$((i+1))" "$_stage3_total" "pod logs: $label"
   log_count=0
   date_count=0
 
@@ -1893,6 +1961,7 @@ done
 
 # Collect coordinator portworx pod logs (PX, non-PXCSIV3)
 if [[ "$option" == "PX" && "$PXCSIV3" != "true" ]]; then
+  print_substage 3 "$_stage3_total" "$_stage3_total" "coordinator portworx pod log"
   pxctl_status_file="${output_dir}/portworx/pxctl_out/pxctl_status.json"
   coord_node=$(get_coordinator_node "$pxctl_status_file")
   if [[ -n "$coord_node" && "$coord_node" != "null" ]]; then
@@ -1911,8 +1980,10 @@ fi
 
 print_progress 4
 
+_stage4_total=${#k8s_log_labels[@]}
 for i in "${!k8s_log_labels[@]}"; do
   label="${k8s_log_labels[$i]}"
+  print_substage 4 "$((i+1))" "$_stage4_total" "kube-system logs: $label"
   PODS=$($cli get pods -n kube-system -l $label -o jsonpath="{.items[*].metadata.name}")
   for POD in $PODS; do
   if is_container_creating "kube-system" "$POD"; then
@@ -1928,6 +1999,7 @@ done
 
 #execute only if is OpenShift cluster to get kube-api server logs
 if $cli api-versions | grep -q 'openshift'; then
+  print_substage 4 "$_stage4_total" "$_stage4_total" "openshift kube-apiserver logs"
   mkdir -p ${output_dir}/logs/ocp/
   OCP_KUBEAPI_PODS=$($cli get pods -n openshift-kube-apiserver -l apiserver=true -o jsonpath="{.items[*].metadata.name}")
   for OCP_KUBEAPI_PODS in $OCP_KUBEAPI_PODS; do
@@ -1938,6 +2010,7 @@ if $cli api-versions | grep -q 'openshift'; then
   $cli logs -n openshift-kube-apiserver "$OCP_KUBEAPI_PODS" --tail -1 --all-containers > "$LOG_FILE"
   done
 
+  print_substage 4 "$_stage4_total" "$_stage4_total" "openshift-etcd logs"
   OCP_ETCD_PODS=$($cli get pods -n openshift-etcd -l app=etcd -o jsonpath="{.items[*].metadata.name}")
   if is_container_creating "openshift-etcd" "$POD"; then
     continue
@@ -1981,9 +2054,11 @@ print_progress 5
 if $cli get crd | grep -q "virtualmachines.kubevirt.io"; then
   #echo "KubeVirt is likely enabled."
   mkdir -p $output_dir/virtualization/platform $output_dir/virtualization/virtualmachines $output_dir/virtualization/storage $output_dir/virtualization/migration $output_dir/virtualization/restore $output_dir/virtualization/forklift
+  _stage5_total=${#kubevirt_commands[@]}
   for i in "${!kubevirt_commands[@]}"; do
     cmd="${kubevirt_commands[$i]}"
     output_file="$output_dir/${kubevirt_output[$i]}"
+    print_substage 5 "$((i+1))" "$_stage5_total" "kubevirt: $cmd"
     $cli $cmd > "$output_file" 2>&1
   done
 fi
@@ -1993,8 +2068,10 @@ fi
 
 print_progress 6
 
+_stage6_total=${#logs_oth_ns[@]}
 for i in "${!logs_oth_ns[@]}"; do
   label="${logs_oth_ns[$i]}"
+  print_substage 6 "$((i+1))" "$_stage6_total" "other-ns logs: $label"
   $cli get pods -A -l $label -o jsonpath="{range .items[*]}{.metadata.namespace}{' '}{.metadata.name}{' '}{.status.containerStatuses[*].restartCount}{'\n'}{end}"|
   while read -r namespace pod restartcount; do  
   if [[ -n "$namespace" && -n "$pod" ]]; then
@@ -2025,23 +2102,23 @@ done
 
 extract_oth_commands_op() {
 
+local _total=${#oth_commands[@]}
 for i in "${!oth_commands[@]}"; do
   cmd="${oth_commands[$i]}"
   output_file="$output_dir/${oth_output_files[$i]}"
-  #echo "Executing:  $cmd"
+  print_substage 9 "$((i+1))" "$_total" "$cmd"
   $cmd > "$output_file" 2>&1
-  #echo "Output saved to: $output_file"
-  #echo ""
-  #echo "------------------------------------" 
 done
 }
 
 #print_progress 8
 extract_migration_op() {
+local _total=${#migration_commands[@]}
 for i in "${!migration_commands[@]}"; do
   cmd="${migration_commands[$i]}"
   output_file="$output_dir/${migration_output[$i]}"
   #echo "Executing: $cli $cmd"
+  print_substage 10 "$((i+1))" "$_total" "migration: $cmd"
   $cli $cmd > "$output_file" 2>&1
   #echo "Output saved to: $output_file"
   #echo ""
@@ -2091,9 +2168,11 @@ nslookup_purity_ips() {
 }
 
 extract_masked_data() {
+local _total=${#data_masking_commands[@]}
 for i in "${!data_masking_commands[@]}"; do
   cmd="${data_masking_commands[$i]}"
   output_file="$output_dir/${data_masking_output[$i]}"
+  print_substage 7 "$((i+1))" "$_total" "masked: ${data_masking_output[$i]}"
   eval "$cmd" > "$output_file" 2>&1
   if [[ ${data_masking_output[$i]} == "portworx/px-pure-secret_masked.yaml" ]]; then
     nslookup_purity_ips "$output_file"
@@ -2104,28 +2183,36 @@ done
 # Function to extract common commands and save outputs
 extract_common_commands_op() {
   #echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting common commands..."
+  local _total=$(( ${#common_commands_and_files[@]} / 2 ))
+  local _idx=0
   for ((i=0; i<${#common_commands_and_files[@]}; i+=2)); do
     cmd="${common_commands_and_files[i]}"
     output_file="$output_dir/${common_commands_and_files[i+1]}"
-    #echo ">>> Running: kubectl $cmd > $file"
+    _idx=$((_idx+1))
+    print_substage 8 "$_idx" "$_total" "common: $cmd"
     $cli $cmd > "$output_file" 2>&1
   done
 }
 
 extract_ocp_specific_commands_op() {
-  #echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting common commands..."
+  local _ocp_total=$(( ${#ocp_common_commands_and_files[@]} / 2 ))
+  local _ocp_idx=0
   for ((i=0; i<${#ocp_common_commands_and_files[@]}; i+=2)); do
     cmd="${ocp_common_commands_and_files[i]}"
     output_file="$output_dir/${ocp_common_commands_and_files[i+1]}"
-    #echo ">>> Running: kubectl $cmd > $file"
+    _ocp_idx=$((_ocp_idx+1))
+    print_substage 8 "$_ocp_idx" "$_ocp_total" "ocp: $cmd"
     $cli $cmd > "$output_file" 2>&1
   done
 
   if [[ "$option" == "PX" ]]; then
+    local _ocp_px_total=$(( ${#ocp_px_commands_and_files[@]} / 2 ))
+    local _ocp_px_idx=0
     for ((i=0; i<${#ocp_px_commands_and_files[@]}; i+=2)); do
       cmd="${ocp_px_commands_and_files[i]}"
       output_file="$output_dir/${ocp_px_commands_and_files[i+1]}"
-      #echo ">>> Running: kubectl $cmd > $file"
+      _ocp_px_idx=$((_ocp_px_idx+1))
+      print_substage 8 "$_ocp_px_idx" "$_ocp_px_total" "ocp-px: $cmd"
       if [[ "$cmd" == *"|"* ]]; then
         eval "$cli $cmd" > "$output_file" 2>&1
       else
@@ -2134,6 +2221,7 @@ extract_ocp_specific_commands_op() {
     done
   fi
 
+  print_substage 8 "extra" "extra" "ocp SCC details"
   extract_ocp_scc_details
 }
 
@@ -2178,7 +2266,11 @@ extract_ocp_scc_details() {
 
 extract_storkctl_op() {
     local resource
+    local _total=${#storkctl_resources[@]}
+    local _idx=0
     for resource in "${storkctl_resources[@]}"; do
+        _idx=$((_idx+1))
+        print_substage 11 "$_idx" "$_total" "storkctl get $resource"
         # Build output file path
         local output_file="$output_dir/storkctl_out/storkctl_${resource}.txt"
 
