@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.8.0"
+SCRIPT_VERSION="26.8.1"
 
 
 # Function to display usage
@@ -38,6 +38,7 @@ usage() {
   echo "  -m <modules>   : Comma separated module list to extract additional info (supported: cs)"
   echo "  -w <worker_hosts>     : Comma separated list of node/host names to collect host-level diags"
   echo "  -j <period>    : journalctl period for -w (e.g. 2d, 12h). Default: 2d"
+  echo "  -t <parallel_max (threads)> : Max concurrent workers for parallelized stages. Default: 5"
   exit 1
 }
 # Function to print info in summary file
@@ -72,6 +73,17 @@ is_container_creating() {
     pod_status=$($cli get pod -n "$ns" "$pod" --no-headers 2>/dev/null | awk '{print $3}')
     [[ "$pod_status" == "ContainerCreating" ]]
 }
+# Bounded-concurrency job pool. Call `_parallel_slot` before backgrounding a
+# job to block until at most PARALLEL_MAX-1 workers are running, then call
+# `_parallel_wait` after the loop to reap the remaining workers.
+# PARALLEL_MAX is set by the -t flag (default 5); env override is also honored.
+PARALLEL_MAX="${PARALLEL_MAX:-5}"
+_parallel_slot() {
+    while [[ $(jobs -rp | wc -l) -ge $PARALLEL_MAX ]]; do
+        wait -n 2>/dev/null || sleep 0.05
+    done
+}
+_parallel_wait() { wait; }
 
 # Resolve coordinator node name from pxctl_status.json (lowest StorageSpecs[*].NID).
 # Uses jq when available; otherwise falls back to awk.
@@ -131,7 +143,7 @@ get_coordinator_node() {
 
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:l:m:w:j:" opt; do
+while getopts "n:c:o:u:p:d:f:l:m:w:j:t:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -144,9 +156,18 @@ while getopts "n:c:o:u:p:d:f:l:m:w:j:" opt; do
     m) modules=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     w) worker_hosts="$OPTARG" ;;
     j) journal_period="$OPTARG"; journal_period_passed=true ;;
+    t) parallel_max_opt="$OPTARG" ;;
     *) usage ;;
   esac
 done
+if [[ -n "$parallel_max_opt" ]]; then
+  if ! [[ "$parallel_max_opt" =~ ^[1-9][0-9]*$ ]]; then
+    printf "\033[31m%s: Error: -t must be a positive integer, got: %s\033[0m\n" \
+      "$(date '+%Y-%m-%d %H:%M:%S')" "$parallel_max_opt"
+    exit 1
+  fi
+  PARALLEL_MAX="$parallel_max_opt"
+fi
 
 # -j only applies when -w is passed. Warn and reset to default if -j was given without -w.
 if [[ "$journal_period_passed" == "true" && -z "$worker_hosts" ]]; then
@@ -1513,12 +1534,10 @@ print_progress 1
 for i in "${!commands[@]}"; do
   cmd="${commands[$i]}"
   output_file="$output_dir/${output_files[$i]}"
-  #echo "Executing: $cli $cmd"
-  $cli $cmd > "$output_file" 2>&1
-  #echo "Output saved to: $output_file"
-  #echo ""
-  #echo "------------------------------------" 
+  _parallel_slot
+  ( $cli $cmd > "$output_file" 2>&1 ) &
 done
+_parallel_wait
 
    if [ "$sec_enabled" == "true" ]; then
      TOKEN_EXP="export PXCTL_AUTH_TOKEN=$($cli -n $namespace get secret px-admin-token --template='{{index .data "auth-token" | base64decode}}')"
