@@ -1603,7 +1603,12 @@ fi
 log_info "Security Enabled: ${sec_enabled:-false}"
 log_info "Max px pod logs gather limited to: ${max_pods_logs:-NotSet}"
 if [[ -n "$SKIP_STAGES" ]]; then
-  log_info "Stages skipped via -s: ${SKIP_STAGES//,/ }"
+  # Strip leading/trailing commas from the normalized list for display.
+  _skip_display="${SKIP_STAGES#,}"
+  _skip_display="${_skip_display%,}"
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Stages skipped via -s: ${_skip_display}" | tee -a "$summary_file"
+else
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Stages skipped via -s: none" | tee -a "$summary_file"
 fi
 log_info "Extraction Started"
 
