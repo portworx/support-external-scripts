@@ -30,7 +30,7 @@ SCRIPT_VERSION="26.8.2"
 
 # Function to display usage
 usage() {
-  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>] [-d <output_dir>] [-m <modules>] [-w <worker_hosts>] [-j <period>]"
+  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>] [-d <output_dir>] [-m <modules>] [-w <worker_hosts>] [-j <period>] [-s <stages>]"
   echo "  -n <namespace> : Kubernetes namespace"
   echo "  -c <cli>       : CLI tool to use (oc/kubectl)"
   echo "  -o <option>    : Operation option (PX/PXB)"
@@ -39,6 +39,7 @@ usage() {
   echo "  -w <worker_hosts>     : Comma separated list of node/host names to collect host-level diags"
   echo "  -j <period>    : journalctl period for -w (e.g. 2d, 12h). Default: 2d"
   echo "  -t <parallel_max (threads)> : Max concurrent workers for parallelized stages. Default: 5"
+  echo "  -s <stages>    : Comma separated stage numbers (1-15) to skip. Example: -s 3,4,13"
   exit 1
 }
 # Function to print info in summary file
@@ -62,11 +63,27 @@ print_progress() {
     if [ -t 1 ]; then
         printf '\r\033[K'
     fi
+    # If the caller did not already mark this stage as skipped, honor -s here.
+    if [[ "$action" != "skip" ]] && is_skipped_stage "$current_stage"; then
+        action="skip"
+    fi
     if [[ "$action" == "skip" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Skipping $current_stage/$total_stages..." | tee -a "$summary_file"
     else
         echo "$(date '+%Y-%m-%d %H:%M:%S'): Extracting $current_stage/$total_stages..." | tee -a "$summary_file"
     fi
+}
+
+# Normalize -s input into a comma-delimited list with leading/trailing commas
+# so membership checks are simple substring matches. Populated later during
+# option validation; empty string means no stages are skipped.
+SKIP_STAGES=""
+
+# Returns 0 (true) if stage $1 was requested to be skipped via -s.
+is_skipped_stage() {
+    [[ -z "$SKIP_STAGES" ]] && return 1
+    [[ "$SKIP_STAGES" == *",$1,"* ]] && return 0
+    return 1
 }
 
 # Print a substage progress line within a stage. On a TTY, overwrites the
@@ -173,7 +190,7 @@ get_coordinator_node() {
 
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:l:m:w:j:t:" opt; do
+while getopts "n:c:o:u:p:d:f:l:m:w:j:t:s:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -187,6 +204,7 @@ while getopts "n:c:o:u:p:d:f:l:m:w:j:t:" opt; do
     w) worker_hosts="$OPTARG" ;;
     j) journal_period="$OPTARG"; journal_period_passed=true ;;
     t) parallel_max_opt="$OPTARG" ;;
+    s) skip_stages_opt="$OPTARG" ;;
     *) usage ;;
   esac
 done
@@ -197,6 +215,24 @@ if [[ -n "$parallel_max_opt" ]]; then
     exit 1
   fi
   PARALLEL_MAX="$parallel_max_opt"
+fi
+
+# Parse -s skip list. Accept comma separated stage numbers in [1,15]. Normalize
+# to ",N1,N2,...," so is_skipped_stage can match with a substring test.
+if [[ -n "$skip_stages_opt" ]]; then
+  _skip_norm=","
+  IFS=',' read -ra _skip_arr <<< "$skip_stages_opt"
+  for _sn in "${_skip_arr[@]}"; do
+    _sn=$(echo "$_sn" | xargs)
+    [[ -z "$_sn" ]] && continue
+    if ! [[ "$_sn" =~ ^[0-9]+$ ]] || (( _sn < 1 || _sn > 15 )); then
+      printf "\033[31m%s: Error: -s stage must be an integer 1-15, got: %s\033[0m\n" \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "$_sn"
+      exit 1
+    fi
+    _skip_norm+="${_sn},"
+  done
+  SKIP_STAGES="$_skip_norm"
 fi
 
 # -j only applies when -w is passed. Warn and reset to default if -j was given without -w.
@@ -1566,48 +1602,45 @@ if [[ "$option_defaulted" == "true" ]]; then
 fi
 log_info "Security Enabled: ${sec_enabled:-false}"
 log_info "Max px pod logs gather limited to: ${max_pods_logs:-NotSet}"
+if [[ -n "$SKIP_STAGES" ]]; then
+  log_info "Stages skipped via -s: ${SKIP_STAGES//,/ }"
+fi
 log_info "Extraction Started"
 
 
 # Execute commands and save outputs to files
 print_progress 1
-_stage1_total=${#commands[@]}
-_stage1_counter=$(mktemp -t pxgl_stage1.XXXXXX)
-: > "$_stage1_counter"
-print_substage 1 0 "$_stage1_total" "kubectl commands starting"
-for i in "${!commands[@]}"; do
-  cmd="${commands[$i]}"
-  output_file="$output_dir/${output_files[$i]}"
-  _parallel_slot
-  (
-    $cli $cmd > "$output_file" 2>&1
-    # Append a single byte; count file size for a race-free progress count.
-    printf '.' >> "$_stage1_counter"
-    _done=$(wc -c < "$_stage1_counter" | tr -d ' ')
-    print_substage 1 "$_done" "$_stage1_total" "kubectl commands"
-  ) &
-done
-_parallel_wait
-rm -f "$_stage1_counter"
+if ! is_skipped_stage 1; then
+  _stage1_total=${#commands[@]}
+  _stage1_counter=$(mktemp -t pxgl_stage1.XXXXXX)
+  : > "$_stage1_counter"
+  print_substage 1 0 "$_stage1_total" "kubectl commands starting"
+  for i in "${!commands[@]}"; do
+    cmd="${commands[$i]}"
+    output_file="$output_dir/${output_files[$i]}"
+    _parallel_slot
+    (
+      $cli $cmd > "$output_file" 2>&1
+      # Append a single byte; count file size for a race-free progress count.
+      printf '.' >> "$_stage1_counter"
+      _done=$(wc -c < "$_stage1_counter" | tr -d ' ')
+      print_substage 1 "$_done" "$_stage1_total" "kubectl commands"
+    ) &
+  done
+  _parallel_wait
+  rm -f "$_stage1_counter"
 
-print_substage 1 "$_stage1_total" "$_stage1_total" "kubectl top nodes"
-
-   if [ "$sec_enabled" == "true" ]; then
-     TOKEN_EXP="export PXCTL_AUTH_TOKEN=$($cli -n $namespace get secret px-admin-token --template='{{index .data "auth-token" | base64decode}}')"
-     #echo "Security Enabled: true">>$summary_file
-     #pxcmd="exec service/portworx-service -- bash -c \"\${TOKEN} && /opt/pwx/bin/pxctl"
-     #pxcmd="exec service/portworx-service -- bash -c \"${TOKEN} && /opt/pwx/bin/pxctl"
-
-  #else
-     #echo "Security Enabled: false">>$summary_file
-     #pxcmd="exec service/portworx-service -- \"/opt/pwx/bin/pxctl"
+  print_substage 1 "$_stage1_total" "$_stage1_total" "kubectl top nodes"
+  # Get top command output for node
+  if [[ "$cli" == "oc" ]]; then
+    $cli adm top node > "$output_dir/cluster/top_nodes.txt" 2>&1
+  else
+    $cli top node > "$output_dir/cluster/top_nodes.txt" 2>&1
   fi
+fi
 
-# Get top command output for node
-if [[ "$cli" == "oc" ]]; then
-  $cli adm top node > "$output_dir/cluster/top_nodes.txt" 2>&1
-else
-  $cli top node > "$output_dir/cluster/top_nodes.txt" 2>&1
+if [ "$sec_enabled" == "true" ]; then
+  TOKEN_EXP="export PXCTL_AUTH_TOKEN=$($cli -n $namespace get secret px-admin-token --template='{{index .data "auth-token" | base64decode}}')"
 fi
 
 case "$OSTYPE" in
@@ -1639,7 +1672,7 @@ for i in "${!pxctl_commands[@]}"; do
 done
 }
 
-if [[ "$PXCSIV3" == "true" ]]; then
+if [[ "$PXCSIV3" == "true" ]] || is_skipped_stage 2; then
   print_progress 2 skip
 else
   print_progress 2
@@ -1848,6 +1881,7 @@ extract_node_host_diags() {
 
 # Generating Logs
 print_progress 3
+if ! is_skipped_stage 3; then
 
 #settig default value
 pxc_max_pods_logs="${max_pods_logs:-200}"
@@ -1978,7 +2012,10 @@ if [[ "$option" == "PX" && "$PXCSIV3" != "true" ]]; then
   fi
 fi
 
+fi  # end stage 3
+
 print_progress 4
+if ! is_skipped_stage 4; then
 
 _stage4_total=${#k8s_log_labels[@]}
 for i in "${!k8s_log_labels[@]}"; do
@@ -2043,7 +2080,9 @@ if $cli api-versions | grep -q 'openshift'; then
   fi
 fi
 
-# Execute other commands 
+fi  # end stage 4
+
+# Execute other commands
 #print_progress 5
 
 
@@ -2051,7 +2090,7 @@ fi
 #Check if kubevirt is enabled and get kubevirt configs only if kubevirt is enabled
 print_progress 5
 
-if $cli get crd | grep -q "virtualmachines.kubevirt.io"; then
+if ! is_skipped_stage 5 && $cli get crd | grep -q "virtualmachines.kubevirt.io"; then
   #echo "KubeVirt is likely enabled."
   mkdir -p $output_dir/virtualization/platform $output_dir/virtualization/virtualmachines $output_dir/virtualization/storage $output_dir/virtualization/migration $output_dir/virtualization/restore $output_dir/virtualization/forklift
   _stage5_total=${#kubevirt_commands[@]}
@@ -2067,13 +2106,14 @@ fi
 #Execute log extractions from other namespaces
 
 print_progress 6
+if ! is_skipped_stage 6; then
 
 _stage6_total=${#logs_oth_ns[@]}
 for i in "${!logs_oth_ns[@]}"; do
   label="${logs_oth_ns[$i]}"
   print_substage 6 "$((i+1))" "$_stage6_total" "other-ns logs: $label"
   $cli get pods -A -l $label -o jsonpath="{range .items[*]}{.metadata.namespace}{' '}{.metadata.name}{' '}{.status.containerStatuses[*].restartCount}{'\n'}{end}"|
-  while read -r namespace pod restartcount; do  
+  while read -r namespace pod restartcount; do
   if [[ -n "$namespace" && -n "$pod" ]]; then
         if is_container_creating "$namespace" "$pod"; then
           continue
@@ -2088,15 +2128,17 @@ for i in "${!logs_oth_ns[@]}"; do
         #echo "Saving logs for Pod: $pod (Namespace: $namespace)"
         $cli logs -n "$namespace" "$pod" --tail -1 --all-containers > "$LOG_FILE"
         $cli -n "$namespace" get pod "$pod" -o yaml > "$POD_YAML_FILE"
-        if [[ "$restartcount" > 0 ]]; then         
+        if [[ "$restartcount" > 0 ]]; then
           if [[ "$label" == "name=portworx-operator" || "$label" == "name=stork" || "$label" == "name=stork-scheduler" ]]; then
             $cli logs -n "$namespace" "$pod" --tail -1 --all-containers  -p 2>/dev/null > "$LOG_FILE_PREV"
           fi
         fi
   fi
-  
+
   done
 done
+
+fi  # end stage 6
 
 #Execute Migration commands
 
@@ -3093,33 +3135,43 @@ generate_cluster_overview() {
 
 
 print_progress 7
-extract_masked_data
-if [[ "$option" == "PXB" ]]; then
-  pxb_mongo_export
+if ! is_skipped_stage 7; then
+  extract_masked_data
+  if [[ "$option" == "PXB" ]]; then
+    pxb_mongo_export
+  fi
 fi
 print_progress 8
-extract_common_commands_op
-if $cli api-versions | grep -q 'openshift'; then
-extract_ocp_specific_commands_op
+if ! is_skipped_stage 8; then
+  extract_common_commands_op
+  if $cli api-versions | grep -q 'openshift'; then
+    extract_ocp_specific_commands_op
+  fi
 fi
 
 
-if [[ "$PXCSIV3" == "true" ]]; then
+if [[ "$PXCSIV3" == "true" ]] || is_skipped_stage 9; then
   print_progress 9 skip
-  print_progress 10 skip
-  print_progress 11 skip
 else
   print_progress 9
   extract_oth_commands_op
+fi
+if [[ "$PXCSIV3" == "true" ]] || is_skipped_stage 10; then
+  print_progress 10 skip
+else
   print_progress 10
   extract_migration_op
+fi
+if [[ "$PXCSIV3" == "true" ]] || is_skipped_stage 11; then
+  print_progress 11 skip
+else
   print_progress 11
   extract_storkctl_op
 fi
 
 
 if [[ "$module_cs" == "true" ]]; then
-  if [[ "$PXCSIV3" == "true" ]]; then
+  if [[ "$PXCSIV3" == "true" ]] || is_skipped_stage 12; then
     print_progress 12 skip
   else
     print_progress 12
@@ -3129,22 +3181,26 @@ else
   print_progress 12 skip
 fi
 
-if [[ -n "$worker_hosts" ]]; then
+if [[ -n "$worker_hosts" ]] && ! is_skipped_stage 13; then
   print_progress 13
   extract_node_host_diags
 else
   print_progress 13 skip
 fi
 
-if [[ "$option" == "PX"  && "$kvdb_tls_enabled" != "true" ]]; then
+if [[ "$option" == "PX"  && "$kvdb_tls_enabled" != "true" ]] && ! is_skipped_stage 14; then
   print_progress 14
   pxe_kvdb_keys_stats_export
 else
   print_progress 14 skip
 fi
 
+if ! is_skipped_stage 15; then
   print_progress 15
   generate_cluster_overview
+else
+  print_progress 15 skip
+fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S'): Extraction is completed"
 log_info "Extraction is completed"
