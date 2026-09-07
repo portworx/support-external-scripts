@@ -25,7 +25,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.8.2"
+SCRIPT_VERSION="26.9.0"
 
 
 # Function to display usage
@@ -39,7 +39,23 @@ usage() {
   echo "  -w <worker_hosts>     : Comma separated list of node/host names to collect host-level diags"
   echo "  -j <period>    : journalctl period for -w (e.g. 2d, 12h). Default: 2d"
   echo "  -t <parallel_max (threads)> : Max concurrent workers for parallelized stages. Default: 5"
-  echo "  -s <stages>    : Comma separated stage numbers (1-15) to skip. Example: -s 3,4,13"
+  echo "  -s <stages>    : Comma separated stage numbers (1-15) or names to skip (case-insensitive; names and numbers may be mixed). Example: -s 3,kvdb,host"
+  echo "                   Stage names:"
+  echo "                     1=kctl   (kubectl cluster commands + top nodes)"
+  echo "                     2=pxctl  (pxctl commands)"
+  echo "                     3=plog   (Portworx / PXB pod logs)"
+  echo "                     4=klog   (kube-system + OpenShift pod logs)"
+  echo "                     5=kvirt  (KubeVirt commands)"
+  echo "                     6=olog   (Other-namespace pod logs)"
+  echo "                     7=mong   (PXB MongoDB export)"
+  echo "                     8=comm   (Common k8s object dumps + OCP)"
+  echo "                     9=misc   (Misc. other commands)"
+  echo "                    10=migr   (Stork migration objects)"
+  echo "                    11=sctl   (storkctl output)"
+  echo "                    12=csnap  (Cloudsnap list, module cs)"
+  echo "                    13=host   (Node host diags via SSH)"
+  echo "                    14=kvdb   (KVDB keys / stats export)"
+  echo "                    15=ovrvw  (Cluster overview summary)"
   exit 1
 }
 # Function to print info in summary file
@@ -78,6 +94,32 @@ print_progress() {
 # so membership checks are simple substring matches. Populated later during
 # option validation; empty string means no stages are skipped.
 SKIP_STAGES=""
+
+# Map a stage name -> stage number (case-insensitive). Echoes the number on
+# match, echoes nothing on miss. Kept as a case statement for portability
+# with bash 3.2 (macOS /bin/bash), which lacks associative arrays.
+stage_name_to_num() {
+    local _name
+    _name=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$_name" in
+        kctl)   echo 1 ;;
+        pxctl)  echo 2 ;;
+        plog)   echo 3 ;;
+        klog)   echo 4 ;;
+        kvirt)  echo 5 ;;
+        olog)   echo 6 ;;
+        mong)   echo 7 ;;
+        comm)   echo 8 ;;
+        misc)   echo 9 ;;
+        migr)   echo 10 ;;
+        sctl)   echo 11 ;;
+        csnap)  echo 12 ;;
+        host)   echo 13 ;;
+        kvdb)   echo 14 ;;
+        ovrvw)  echo 15 ;;
+        *)      echo "" ;;
+    esac
+}
 
 # Returns 0 (true) if stage $1 was requested to be skipped via -s.
 is_skipped_stage() {
@@ -217,20 +259,34 @@ if [[ -n "$parallel_max_opt" ]]; then
   PARALLEL_MAX="$parallel_max_opt"
 fi
 
-# Parse -s skip list. Accept comma separated stage numbers in [1,15]. Normalize
-# to ",N1,N2,...," so is_skipped_stage can match with a substring test.
+# Parse -s skip list. Accept comma separated stage numbers in [1,15] or stage
+# names (case-insensitive; see STAGE_NAME_MAP). Numbers and names may be mixed.
+# Normalize to ",N1,N2,...," so is_skipped_stage can match with a substring test.
 if [[ -n "$skip_stages_opt" ]]; then
   _skip_norm=","
   IFS=',' read -ra _skip_arr <<< "$skip_stages_opt"
   for _sn in "${_skip_arr[@]}"; do
     _sn=$(echo "$_sn" | xargs)
     [[ -z "$_sn" ]] && continue
-    if ! [[ "$_sn" =~ ^[0-9]+$ ]] || (( _sn < 1 || _sn > 15 )); then
-      printf "\033[31m%s: Error: -s stage must be an integer 1-15, got: %s\033[0m\n" \
-        "$(date '+%Y-%m-%d %H:%M:%S')" "$_sn"
-      exit 1
+    if [[ "$_sn" =~ ^[0-9]+$ ]]; then
+      if (( _sn < 1 || _sn > 15 )); then
+        printf "\033[31m%s: Error: -s stage number must be 1-15, got: %s\033[0m\n" \
+          "$(date '+%Y-%m-%d %H:%M:%S')" "$_sn"
+        exit 1
+      fi
+      _skip_norm+="${_sn},"
+    else
+      _num=$(stage_name_to_num "$_sn")
+      if [[ -z "$_num" ]]; then
+        printf "\033[31m%s: Error: -s stage must be a number 1-15 or a valid stage name, got: %s\033[0m\n" \
+          "$(date '+%Y-%m-%d %H:%M:%S')" "$_sn"
+        printf "\033[31m%s: Valid stage names: %s\033[0m\n" \
+          "$(date '+%Y-%m-%d %H:%M:%S')" \
+          "kctl,pxctl,plog,klog,kvirt,olog,mong,comm,misc,migr,sctl,csnap,host,kvdb,ovrvw"
+        exit 1
+      fi
+      _skip_norm+="${_num},"
     fi
-    _skip_norm+="${_sn},"
   done
   SKIP_STAGES="$_skip_norm"
 fi
