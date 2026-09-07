@@ -96,8 +96,6 @@ print_progress() {
 SKIP_STAGES=""
 
 # Map a stage name -> stage number (case-insensitive). Echoes the number on
-# match, echoes nothing on miss. Kept as a case statement for portability
-# with bash 3.2 (macOS /bin/bash), which lacks associative arrays.
 stage_name_to_num() {
     local _name
     _name=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
