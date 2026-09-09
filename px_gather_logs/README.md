@@ -24,6 +24,7 @@ The script generates a compressed tarball (`.tar.gz`) in `/tmp` or a user-define
 | `-m`          | Comma-separated module list to extract additional info (supported: `cs` = cloudsnap) | `-m cs`                              |
 | `-w`          | Comma-separated list of worker node/host names to collect host-level diags | `-w node1,node2`                     |
 | `-j`          | journalctl lookback period for host-level diags. Format: `<N>d` or `<N>h`. Default: `2d`     | `-j 12h`                             |
+| `-s`          | Comma-separated stage numbers (1-15) and/or stage names to skip. Names are case-insensitive and may be mixed with numbers. See [Stages](#stages). | `-s 3,kvdb,host`                     |
 
 
 ## Usage
@@ -74,5 +75,39 @@ Direct FTP upload to ftps.purestorage.com can be performed through the script if
 ```bash
 curl -ssL https://raw.githubusercontent.com/portworx/support-external-scripts/refs/heads/main/px_gather_logs/px_gather_logs.sh | bash -s -- -o <PX/PXB> -u <ftpsusername> -p <ftpspassword>
 ```
+
+## Stages
+The extraction runs in 15 stages. Each stage can be skipped with `-s` by either its number or its short name (case-insensitive).
+
+| **#** | **What it does**                                     | **Name**  |
+|-------|------------------------------------------------------|-----------|
+| 1     | Cluster `kubectl` commands                           | `kctl`    |
+| 2     | `pxctl` commands                                     | `pxctl`   |
+| 3     | Portworx / PXB pod logs                              | `plog`    |
+| 4     | `kube-system` + OpenShift pod logs                   | `klog`    |
+| 5     | KubeVirt commands                                    | `kvirt`   |
+| 6     | Other-namespace pod logs                             | `olog`    |
+| 7     | PXB MongoDB export                                   | `mong`    |
+| 8     | Common k8s object dumps + OCP                        | `comm`    |
+| 9     | Misc. other commands                                 | `misc`    |
+| 10    | Stork migration objects                              | `migr`    |
+| 11    | `storkctl` output                                    | `sctl`    |
+| 12    | Cloudsnap list (module `cs`)                         | `csnap`   |
+| 13    | Node host diags (SSH)                                | `host`    |
+| 14    | KVDB keys / stats export                             | `kvdb`    |
+| 15    | Cluster overview summary                             | `ovrvw`   |
+
+**Examples:**
+```bash
+# Skip by numbers
+px_gather_logs.sh -o PX -s 3,4,13
+
+# Skip by names (case-insensitive)
+px_gather_logs.sh -o PX -s plog,klog,host
+
+# Mixed
+px_gather_logs.sh -o PX -s 3,kvdb,HOST
+```
+
 ---
 
