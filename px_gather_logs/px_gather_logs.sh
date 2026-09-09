@@ -39,7 +39,7 @@ usage() {
   echo "  -w <worker_hosts>     : Comma separated list of node/host names to collect host-level diags"
   echo "  -j <period>    : journalctl period for -w (e.g. 2d, 12h). Default: 2d"
   echo "  -t <parallel_max (threads)> : Max concurrent workers for parallelized stages. Default: 5"
-  echo "  -s <stages>    : Comma separated stage numbers (1-15) or names to skip (case-insensitive; names and numbers may be mixed). Example: -s 3,kvdb,host"
+  echo "  -s <stages>    : Skip Stages using comma separated stage numbers (1-15) or names (case-insensitive; names and numbers may be mixed). Example: -s 3,kvdb,host"
   echo "                   Stage names:"
   echo "                     1=kctl   (kubectl cluster commands + top nodes)"
   echo "                     2=pxctl  (pxctl commands)"
