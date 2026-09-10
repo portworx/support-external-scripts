@@ -1655,7 +1655,7 @@ extract_virt_controller_logs() {
 extract_vm_launcher_handler_logs() {
   local kv_ns=$1; shift
   local vms=("$@")
-  local vm_index nodes_file want match vm_ns vm_name_actual
+  local vm_index nodes_file want matches match_count match vm_ns vm_name_actual
   local vmi_node vm_launcher_dir launcher_rows row lp_name lp_node lp_phase
   local node vh_pod
 
@@ -1666,40 +1666,49 @@ extract_vm_launcher_handler_logs() {
   : > "$nodes_file"
 
   for want in "${vms[@]}"; do
-    match=$(echo "$vm_index" | awk -v w="$want" 'tolower($2)==tolower(w){print; exit}')
-    if [[ -z "$match" ]]; then
+    # Collect every namespace where a VM with this name exists (case-insensitive).
+    matches=$(echo "$vm_index" | awk -v w="$want" 'tolower($2)==tolower(w)')
+    if [[ -z "$matches" ]]; then
       log_info "VM '$want' not found in any namespace, skipping virt-launcher/virt-handler collection for it"
       continue
     fi
-    vm_ns=$(echo "$match" | awk '{print $1}')
-    vm_name_actual=$(echo "$match" | awk '{print $2}')
-    log_info "VM '$want' resolved to ${vm_ns}/${vm_name_actual}"
-
-    vmi_node=$($cli get vmi -n "$vm_ns" "$vm_name_actual" \
-      -o jsonpath='{.status.nodeName}' 2>/dev/null)
-    [[ -n "$vmi_node" ]] && echo "$vmi_node" >> "$nodes_file"
-
-    vm_launcher_dir="$output_dir/virtualization/logs/virt-launcher/${vm_ns}_${vm_name_actual}"
-    mkdir -p "$vm_launcher_dir"
-    print_substage 5 "$_stage5_total" "$_stage5_total" "virt-launcher logs ($vm_name_actual)"
-    launcher_rows=$($cli get pods -n "$vm_ns" -l "vm.kubevirt.io/name=$vm_name_actual" \
-      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.nodeName}{" "}{.status.phase}{"\n"}{end}' 2>/dev/null)
-    if [[ -z "$launcher_rows" ]]; then
-      log_info "VM '${vm_ns}/${vm_name_actual}': no virt-launcher pods found"
-    else
-      while IFS= read -r row; do
-        [[ -z "$row" ]] && continue
-        lp_name=$(echo "$row" | awk '{print $1}')
-        lp_node=$(echo "$row" | awk '{print $2}')
-        lp_phase=$(echo "$row" | awk '{print $3}')
-        [[ -n "$lp_node" ]] && echo "$lp_node" >> "$nodes_file"
-        if is_container_creating "$vm_ns" "$lp_name"; then
-          continue
-        fi
-        $cli logs -n "$vm_ns" "$lp_name" --tail -1 --all-containers \
-          > "$vm_launcher_dir/${lp_name}_${lp_phase}_${lp_node}.log" 2>&1
-      done <<< "$launcher_rows"
+    match_count=$(echo "$matches" | wc -l | tr -d ' ')
+    if (( match_count > 1 )); then
+      log_info "VM '$want' matched $match_count namespaces; collecting for all: $(echo "$matches" | awk '{print $1"/"$2}' | paste -sd, -)"
     fi
+
+    while IFS= read -r match; do
+      [[ -z "$match" ]] && continue
+      vm_ns=$(echo "$match" | awk '{print $1}')
+      vm_name_actual=$(echo "$match" | awk '{print $2}')
+      log_info "VM '$want' resolved to ${vm_ns}/${vm_name_actual}"
+
+      vmi_node=$($cli get vmi -n "$vm_ns" "$vm_name_actual" \
+        -o jsonpath='{.status.nodeName}' 2>/dev/null)
+      [[ -n "$vmi_node" ]] && echo "$vmi_node" >> "$nodes_file"
+
+      vm_launcher_dir="$output_dir/virtualization/logs/virt-launcher/${vm_ns}_${vm_name_actual}"
+      mkdir -p "$vm_launcher_dir"
+      print_substage 5 "$_stage5_total" "$_stage5_total" "virt-launcher logs (${vm_ns}/${vm_name_actual})"
+      launcher_rows=$($cli get pods -n "$vm_ns" -l "vm.kubevirt.io/name=$vm_name_actual" \
+        -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.nodeName}{" "}{.status.phase}{"\n"}{end}' 2>/dev/null)
+      if [[ -z "$launcher_rows" ]]; then
+        log_info "VM '${vm_ns}/${vm_name_actual}': no virt-launcher pods found"
+      else
+        while IFS= read -r row; do
+          [[ -z "$row" ]] && continue
+          lp_name=$(echo "$row" | awk '{print $1}')
+          lp_node=$(echo "$row" | awk '{print $2}')
+          lp_phase=$(echo "$row" | awk '{print $3}')
+          [[ -n "$lp_node" ]] && echo "$lp_node" >> "$nodes_file"
+          if is_container_creating "$vm_ns" "$lp_name"; then
+            continue
+          fi
+          $cli logs -n "$vm_ns" "$lp_name" --tail -1 --all-containers \
+            > "$vm_launcher_dir/${lp_name}_${lp_phase}_${lp_node}.log" 2>&1
+        done <<< "$launcher_rows"
+      fi
+    done <<< "$matches"
   done
 
   if [[ -n "$kv_ns" && -s "$nodes_file" ]]; then
