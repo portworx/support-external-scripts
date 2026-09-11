@@ -25,6 +25,7 @@ The script generates a compressed tarball (`.tar.gz`) in `/tmp` or a user-define
 | `-w`          | Comma-separated list of worker node/host names to collect host-level diags | `-w node1,node2`                     |
 | `-j`          | journalctl lookback period for host-level diags. Format: `<N>d` or `<N>h`. Default: `2d`     | `-j 12h`                             |
 | `-s`          | Comma-separated stage numbers (1-15) and/or stage names to skip. Names are case-insensitive and may be mixed with numbers. See [Stages](#stages). | `-s 3,kvdb,host`                     |
+| `-v`          | Comma-separated KubeVirt VM names (case-insensitive) to collect `virt-launcher` (current + prior instances) and `virt-handler` logs for. Applies only when KubeVirt is enabled. | `-v myvm,otherVM`                    |
 
 
 ## Usage
@@ -49,6 +50,10 @@ px_gather_logs.sh -o PX -n portworx -c oc -f MyCluster -d /data/diags
 px_gather_logs.sh -o PX -w worker-01,worker-02
 ```
 
+**Collecting KubeVirt VM logs (virt-launcher + virt-handler) for specific VMs:**
+```bash
+px_gather_logs.sh -o PX -v myvm,otherVM
+```
 
 ### Without Parameters
 
@@ -85,7 +90,7 @@ The extraction runs in 15 stages. Each stage can be skipped with `-s` by either 
 | 2     | `pxctl` commands                                     | `pxctl`   |
 | 3     | Portworx / PXB pod logs                              | `plog`    |
 | 4     | `kube-system` + OpenShift pod logs                   | `klog`    |
-| 5     | KubeVirt commands                                    | `kvirt`   |
+| 5     | KubeVirt commands + virt-controller / virt-launcher / virt-handler logs (`-v`) | `kvirt`   |
 | 6     | Other-namespace pod logs                             | `olog`    |
 | 7     | PXB MongoDB export                                   | `mong`    |
 | 8     | Common k8s object dumps + OCP                        | `comm`    |

@@ -14,6 +14,7 @@
 #   -d <output_dir>: Custom output directory for storing diags
 #   -w <worker_hosts>     : Comma-separated list of woker node/host names to collect host-level diags
 #   -j <period>    : journalctl lookback period for -w. Format: <N>d or <N>h (e.g. 2d, 12h). Default: 2d
+#   -v <vm_names>  : Comma-separated list of KubeVirt VM names (case-insensitive) to collect virt-launcher/virt-handler logs for. Applies only when KubeVirt is enabled.
 #
 # Examples:
 #   For Portworx:
@@ -25,12 +26,12 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.9.0"
+SCRIPT_VERSION="26.9.1"
 
 
 # Function to display usage
 usage() {
-  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>] [-d <output_dir>] [-m <modules>] [-w <worker_hosts>] [-j <period>] [-s <stages>]"
+  echo "Usage: $0 [-n <namespace>] [-c <cli>] [-o <option>] [-d <output_dir>] [-m <modules>] [-w <worker_hosts>] [-j <period>] [-s <stages>] [-v <vm_names>]"
   echo "  -n <namespace> : Kubernetes namespace"
   echo "  -c <cli>       : CLI tool to use (oc/kubectl)"
   echo "  -o <option>    : Operation option (PX/PXB)"
@@ -38,6 +39,7 @@ usage() {
   echo "  -m <modules>   : Comma separated module list to extract additional info (supported: cs)"
   echo "  -w <worker_hosts>     : Comma separated list of node/host names to collect host-level diags"
   echo "  -j <period>    : journalctl period for -w (e.g. 2d, 12h). Default: 2d"
+  echo "  -v <vm_names>  : Comma-separated KubeVirt VM names (case-insensitive) to collect virt-launcher/virt-handler logs for. Applies only when KubeVirt is enabled."
   echo "  -t <parallel_max (threads)> : Max concurrent workers for parallelized stages. Default: 5"
   echo "  -s <stages>    : Skip Stages using comma separated stage numbers (1-15) or names (case-insensitive; names and numbers may be mixed). Example: -s 3,kvdb,host"
   echo "                   Stage names:"
@@ -230,7 +232,7 @@ get_coordinator_node() {
 
 
 # Parse command-line arguments
-while getopts "n:c:o:u:p:d:f:l:m:w:j:t:s:" opt; do
+while getopts "n:c:o:u:p:d:f:l:m:w:j:t:s:v:" opt; do
   case $opt in
     n) namespace=$(echo "$OPTARG" | tr '[:upper:]' '[:lower:]') ;;
     c) cli="$OPTARG" ;;
@@ -245,6 +247,7 @@ while getopts "n:c:o:u:p:d:f:l:m:w:j:t:s:" opt; do
     j) journal_period="$OPTARG"; journal_period_passed=true ;;
     t) parallel_max_opt="$OPTARG" ;;
     s) skip_stages_opt="$OPTARG" ;;
+    v) vm_names_opt="$OPTARG" ;;
     *) usage ;;
   esac
 done
@@ -287,6 +290,21 @@ if [[ -n "$skip_stages_opt" ]]; then
     fi
   done
   SKIP_STAGES="$_skip_norm"
+fi
+
+# Parse -v vm names list into an array (comma separated, case-insensitive).
+vm_names=()
+if [[ -n "$vm_names_opt" ]]; then
+  _seen=","
+  IFS=',' read -ra _vm_arr <<< "$vm_names_opt"
+  for _vn in "${_vm_arr[@]}"; do
+    _vn=$(echo "$_vn" | xargs | tr '[:upper:]' '[:lower:]')
+    [[ -z "$_vn" ]] && continue
+    if [[ "$_seen" != *",${_vn},"* ]]; then
+      vm_names+=("$_vn")
+      _seen+="${_vn},"
+    fi
+  done
 fi
 
 # -j only applies when -w is passed. Warn and reset to default if -j was given without -w.
@@ -564,6 +582,13 @@ validate_hosts() {
 
 validate_hosts
 
+# -v only applies to PX (Stage 5 KubeVirt). Warn and clear when passed with PXB.
+if [[ "$option" == "PXB" && ${#vm_names[@]} -gt 0 ]]; then
+  printf "\033[33m%s: Warning: -v is not applicable for PXB. Ignoring VM log collection.\033[0m\n" \
+    "$(date '+%Y-%m-%d %H:%M:%S')"
+  vm_names=()
+fi
+
 # Automatically get Kubernetes cluster name
 
 if $cli get infrastructure cluster &>/dev/null; then
@@ -584,6 +609,9 @@ echo "$(date '+%Y-%m-%d %H:%M:%S'): option: $option"
 if [[ -n "$worker_hosts" ]]; then
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Worker hosts (-w): $worker_hosts"
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Journal period (-j): $journal_period"
+fi
+if [[ ${#vm_names[@]} -gt 0 ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): VM names (-v): ${vm_names[*]}"
 fi
 
 # Added function to check if its PX CSI V3 (version higher than 25.8.0)
@@ -1599,6 +1627,113 @@ ocp_px_commands_and_files=(
       awk -F'/' '{print $1"/"$2"/"$3"/"$4}' $target_dir/etcdctl_kvdb_keys_only.txt | sort | uniq -c > "$target_dir/kvdb_keys_statistics_summary.txt" 2>&1 || true
   }
 
+# KubeVirt: collect all virt-controller pod logs from the control-plane namespace.
+# Usage: extract_virt_controller_logs <kubevirt_ns>
+extract_virt_controller_logs() {
+  local kv_ns=$1
+  if [[ -z "$kv_ns" ]]; then
+    log_info "KubeVirt: unable to locate virt-controller namespace, skipping virt-controller/virt-handler log collection"
+    return 0
+  fi
+  print_substage 5 "$_stage5_total" "$_stage5_total" "virt-controller logs"
+  local vc_pods POD
+  vc_pods=$($cli get pods -n "$kv_ns" -l kubevirt.io=virt-controller \
+    -o jsonpath="{.items[*].metadata.name}" 2>/dev/null)
+  for POD in $vc_pods; do
+    if is_container_creating "$kv_ns" "$POD"; then
+      continue
+    fi
+    $cli logs -n "$kv_ns" "$POD" --tail -1 --all-containers \
+      > "$output_dir/virtualization/logs/virt-controller/${POD}.log" 2>&1
+  done
+}
+
+# KubeVirt: for each requested VM (case-insensitive), collect virt-launcher pod
+# logs (current + prior instances) and virt-handler logs from every node any of
+# the VMs has run on. Handler collection is deduped across all listed VMs.
+# Usage: extract_vm_launcher_handler_logs <kubevirt_ns> <vm_name> [<vm_name> ...]
+extract_vm_launcher_handler_logs() {
+  local kv_ns=$1; shift
+  local vms=("$@")
+  local vm_index nodes_file want matches match_count match vm_ns vm_name_actual
+  local vmi_node vm_launcher_dir launcher_rows row lp_name lp_node lp_phase
+  local node vh_pod
+
+  vm_index=$($cli get vm -A \
+    -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+
+  nodes_file=$(mktemp -t pxgl_vmnodes.XXXXXX)
+  : > "$nodes_file"
+
+  for want in "${vms[@]}"; do
+    # Collect every namespace where a VM with this name exists (case-insensitive).
+    matches=$(echo "$vm_index" | awk -v w="$want" 'tolower($2)==tolower(w)')
+    if [[ -z "$matches" ]]; then
+      log_info "VM '$want' not found in any namespace, skipping virt-launcher/virt-handler collection for it"
+      continue
+    fi
+    match_count=$(echo "$matches" | wc -l | tr -d ' ')
+    if (( match_count > 1 )); then
+      log_info "VM '$want' matched $match_count namespaces; collecting for all: $(echo "$matches" | awk '{print $1"/"$2}' | paste -sd, -)"
+    fi
+
+    while IFS= read -r match; do
+      [[ -z "$match" ]] && continue
+      vm_ns=$(echo "$match" | awk '{print $1}')
+      vm_name_actual=$(echo "$match" | awk '{print $2}')
+      log_info "VM '$want' resolved to ${vm_ns}/${vm_name_actual}"
+
+      vmi_node=$($cli get vmi -n "$vm_ns" "$vm_name_actual" \
+        -o jsonpath='{.status.nodeName}' 2>/dev/null)
+      [[ -n "$vmi_node" ]] && echo "$vmi_node" >> "$nodes_file"
+
+      vm_launcher_dir="$output_dir/virtualization/logs/virt-launcher/${vm_ns}_${vm_name_actual}"
+      mkdir -p "$vm_launcher_dir"
+      print_substage 5 "$_stage5_total" "$_stage5_total" "virt-launcher logs (${vm_ns}/${vm_name_actual})"
+      launcher_rows=$($cli get pods -n "$vm_ns" -l "vm.kubevirt.io/name=$vm_name_actual" \
+        -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.nodeName}{" "}{.status.phase}{"\n"}{end}' 2>/dev/null)
+      if [[ -z "$launcher_rows" ]]; then
+        log_info "VM '${vm_ns}/${vm_name_actual}': no virt-launcher pods found"
+      else
+        while IFS= read -r row; do
+          [[ -z "$row" ]] && continue
+          lp_name=$(echo "$row" | awk '{print $1}')
+          lp_node=$(echo "$row" | awk '{print $2}')
+          lp_phase=$(echo "$row" | awk '{print $3}')
+          [[ -n "$lp_node" ]] && echo "$lp_node" >> "$nodes_file"
+          if is_container_creating "$vm_ns" "$lp_name"; then
+            continue
+          fi
+          $cli logs -n "$vm_ns" "$lp_name" --tail -1 --all-containers \
+            > "$vm_launcher_dir/${lp_name}_${lp_phase}_${lp_node}.log" 2>&1
+        done <<< "$launcher_rows"
+      fi
+    done <<< "$matches"
+  done
+
+  if [[ -n "$kv_ns" && -s "$nodes_file" ]]; then
+    while IFS= read -r node; do
+      [[ -z "$node" ]] && continue
+      vh_pod=$($cli get pods -n "$kv_ns" -l kubevirt.io=virt-handler \
+        --field-selector spec.nodeName="$node" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+      if [[ -z "$vh_pod" ]]; then
+        log_info "virt-handler pod not found on node '$node'"
+        continue
+      fi
+      if is_container_creating "$kv_ns" "$vh_pod"; then
+        continue
+      fi
+      print_substage 5 "$_stage5_total" "$_stage5_total" "virt-handler logs"
+      $cli logs -n "$kv_ns" "$vh_pod" --tail -1 --all-containers \
+        > "$output_dir/virtualization/logs/virt-handler/${node}.log" 2>&1
+    done < <(sort -u "$nodes_file")
+  elif [[ ! -s "$nodes_file" ]]; then
+    log_info "No nodes resolved for -v VMs, skipping virt-handler log collection"
+  fi
+  rm -f "$nodes_file"
+}
+
 pxb_mongo_export() {
   DB_PASS=$($cli -n "$namespace" get secret pxc-backup-mongodb --template='{{index .data "mongodb-root-password" | base64decode}}')
 
@@ -1650,6 +1785,11 @@ log_info "Modules (-m): ${modules:-none}"
 if [[ -n "$worker_hosts" ]]; then
   log_info "Worker hosts (-w): $worker_hosts"
   log_info "Journal period (-j): $journal_period"
+fi
+if [[ ${#vm_names[@]} -gt 0 ]]; then
+  log_info "VM names (-v): ${vm_names[*]}"
+else
+  log_info "VM names (-v): none"
 fi
 if [[ "$option_defaulted" == "true" ]]; then
   log_info "-o option not passed, setting default option as PX. Pass -o PXB if you are looking to extract PXB diags"
@@ -2152,6 +2292,7 @@ print_progress 5
 if ! is_skipped_stage 5 && $cli get crd | grep -q "virtualmachines.kubevirt.io"; then
   #echo "KubeVirt is likely enabled."
   mkdir -p $output_dir/virtualization/platform $output_dir/virtualization/virtualmachines $output_dir/virtualization/storage $output_dir/virtualization/migration $output_dir/virtualization/restore $output_dir/virtualization/forklift
+  mkdir -p "$output_dir/virtualization/logs/virt-controller" "$output_dir/virtualization/logs/virt-launcher" "$output_dir/virtualization/logs/virt-handler"
   _stage5_total=${#kubevirt_commands[@]}
   for i in "${!kubevirt_commands[@]}"; do
     cmd="${kubevirt_commands[$i]}"
@@ -2159,6 +2300,16 @@ if ! is_skipped_stage 5 && $cli get crd | grep -q "virtualmachines.kubevirt.io";
     print_substage 5 "$((i+1))" "$_stage5_total" "kubevirt commands"
     $cli $cmd > "$output_file" 2>&1
   done
+
+  # Resolve KubeVirt control-plane namespace (openshift-cnv on OCP, kubevirt upstream).
+  kubevirt_ns=$($cli get pods -A -l kubevirt.io=virt-controller \
+    -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null)
+
+  extract_virt_controller_logs "$kubevirt_ns"
+
+  if [[ ${#vm_names[@]} -gt 0 ]]; then
+    extract_vm_launcher_handler_logs "$kubevirt_ns" "${vm_names[@]}"
+  fi
 fi
 
 
