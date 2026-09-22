@@ -26,7 +26,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.9.1"
+SCRIPT_VERSION="26.9.2"
 
 
 # Function to display usage
@@ -1760,7 +1760,9 @@ pxb_mongo_export() {
   run_query "clusterobjects" '{ "clusterInfo.kubeconfig": 0 }' > "$output_dir/pxb_db_collections/pxb_clusterobjects.json"
   ## 4. Backup Location Objects
   print_substage 7 4 5 "PXB Mongo collection"
-  run_query "backuplocationobjects" > "$output_dir/pxb_db_collections/pxb_backuplocationobjects.json"
+  run_query "backuplocationobjects" \
+    | sed -E 's/"encryptionKey"[[:space:]]*:[[:space:]]*"[^"]*"/"encryptionKey":"*****Masked*****"/g' \
+    > "$output_dir/pxb_db_collections/pxb_backuplocationobjects.json"
 
   ## 5. Schedule Policy Objects
   print_substage 7 5 5 "PXB Mongo collection"
