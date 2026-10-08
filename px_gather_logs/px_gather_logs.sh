@@ -764,7 +764,7 @@ setup_output_dirs
 if [[ "$option" == "PX" ]]; then
 #  admin_ns=$($cli -n $namespace get stc -o jsonpath='{.items[*].spec.stork.args.admin-namespace}')
 #  admin_ns="${admin_ns:-kube-system}"
-  IFS='|' read -r sec_enabled kvdb_tls_enabled autopilot_enabled_flag telemetry_enabled_flag<<($cli -n $namespace get stc -o=jsonpath='{.items[*].spec.security.enabled}|{.items[*].spec.kvdb.enableTLS}|{.items[*].spec.autopilot.enabled}|{.items[*].spec.monitoring.telemetry.enabled}')
+  IFS='|' read -r sec_enabled kvdb_tls_enabled autopilot_enabled_flag telemetry_enabled_flag < <($cli -n $namespace get stc -o=jsonpath='{.items[*].spec.security.enabled}|{.items[*].spec.kvdb.enableTLS}|{.items[*].spec.autopilot.enabled}|{.items[*].spec.monitoring.telemetry.enabled}')
 
 
 
