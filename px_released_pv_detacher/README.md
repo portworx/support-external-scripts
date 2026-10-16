@@ -1,4 +1,4 @@
-# gm_released_pv_detacher.sh — Runbook
+# px_released_pv_detacher.sh — Runbook
 
 ## Purpose
 
@@ -135,7 +135,7 @@ in the cluster, applies the filter, prints the list, and prints the exact
 options or the volumes. Capture the transcript for review:
 
 ```
-./gm_released_pv_detacher.sh --dry-run 2>&1 | tee px-detach-dryrun-$(date +%F-%H%M).log
+./px_released_pv_detacher.sh --dry-run 2>&1 | tee px-detach-dryrun-$(date +%F-%H%M).log
 ```
 
 Read the log. Confirm:
@@ -160,10 +160,10 @@ string `DETACH` before mass-detaching (and that prompt is on a TTY), do
 
 ```
 # Interactive, no automation:
-./gm_released_pv_detacher.sh
+./px_released_pv_detacher.sh
 
 # Automated / logged:
-./gm_released_pv_detacher.sh --yes 2>&1 | tee px-detach-$(date +%F-%H%M).log
+./px_released_pv_detacher.sh --yes 2>&1 | tee px-detach-$(date +%F-%H%M).log
 ```
 
 For the first prod run, keep the default 30-second sleep between detaches.
