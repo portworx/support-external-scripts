@@ -26,7 +26,7 @@
 #
 # ================================================================
 
-SCRIPT_VERSION="26.9.2"
+SCRIPT_VERSION="26.10.0"
 
 
 # Function to display usage
@@ -687,7 +687,35 @@ if [[ -z "$file_prefix" && -n "$cluster_name" ]]; then
   fi
 fi
 
+# Truncate file_prefix or cluster_part so full filename (including .tar.gz) stays within 100 chars.
+# Base name max = 93. Fixed parts: product tag (4-6) + "_k8s_diags_YYYYMMDD_HHMMSS" (26).
+max_base_len=93
+fixed_suffix_len=26
 
+if [[ "$option" == "PX" ]]; then
+  [[ "$PXCSIV3" == "true" ]] && ptag_len=6 || ptag_len=4
+else
+  ptag_len=4
+fi
+
+pc_budget=$(( max_base_len - fixed_suffix_len - ptag_len - ${#namespace} ))
+if [[ $pc_budget -lt 0 ]]; then
+  pc_budget=0
+fi
+
+if [[ -n "$file_prefix" && ${#file_prefix} -gt $pc_budget ]]; then
+  if [[ $pc_budget -ge 2 ]]; then
+    file_prefix="${file_prefix:0:$(( pc_budget - 1 ))}_"
+  else
+    file_prefix=""
+  fi
+elif [[ -n "$cluster_part" && ${#cluster_part} -gt $pc_budget ]]; then
+  if [[ $pc_budget -ge 2 ]]; then
+    cluster_part="${cluster_part:0:$(( pc_budget - 1 ))}_"
+  else
+    cluster_part=""
+  fi
+fi
 
 if [[ "$option" == "PX" ]]; then
   if [[ "$PXCSIV3" == "true" ]]; then
